@@ -266,7 +266,7 @@ function roomLines(rows: ApplicationRow[], title: string): string[] {
   return out;
 }
 
-const LOGIN_HELP = '로그인하려면: "로그인 <이름> <전화번호> [이메일]" (이메일은 선택) 또는 "이름은 이준호, 번호는 010-1234-5678, 이메일은 junho@psynet.co.kr로 로그인해줘"처럼 말해봐.';
+const LOGIN_HELP = '로그인하려면: "로그인 <이름> <전화번호> <이메일>" (이메일 필수 — 다시 연락하려면 필요해) 또는 "이름은 이준호, 번호는 010-1234-5678, 이메일은 junho@psynet.co.kr로 로그인해줘"처럼 말해봐.';
 
 export async function processCommand(rawLine: string, ctx: CommandContext): Promise<CommandResult> {
   const line = rawLine.trim();
@@ -300,17 +300,21 @@ export async function processCommand(rawLine: string, ctx: CommandContext): Prom
 
   try {
     if (cmd === "도움말" || cmd === "help") {
-      out.push('사용법: 프로젝트명을 그대로 말하면 됨. 예) "다크모드 프로젝트 찾아줘" / "거기 신청할래" / "현황 어때?" / "내 신청 보여줘" / "내 프로젝트에 누가 신청했어?" / "<이름> 수락해줘"(PM 전용) / "마케팅 스킬 추가해줘" / "기획 스킬 빼줘" / 스킬 <a,b,c>(전체 교체) / 로그인 <이름> <전화번호>');
+      out.push('사용법: 프로젝트명을 그대로 말하면 됨. 예) "다크모드 프로젝트 찾아줘" / "거기 신청할래" / "현황 어때?" / "내 신청 보여줘" / "내 프로젝트에 누가 신청했어?" / "<이름> 수락해줘"(PM 전용) / "마케팅 스킬 추가해줘" / "기획 스킬 빼줘" / 스킬 <a,b,c>(전체 교체) / 이메일 <주소>(등록·변경) / 로그인 <이름> <전화번호> <이메일>');
     } else if (cmd === "로그인") {
       const name = parts[1];
       const phone = parts[2] ? normalizePhone(parts[2]) : null;
       const emailArg = parts[3] && /^[\w.+-]+@[\w-]+\.[\w.-]+$/.test(parts[3]) ? parts[3] : null;
+      const existingUser = phone ? await getUserByPhone(phone) : null;
+      const effectiveEmail = emailArg ?? existingUser?.email ?? null;
       if (!name || !phone) {
         out.push(`[오류] 이름/전화번호를 못 읽었어. ${LOGIN_HELP}`);
+      } else if (!effectiveEmail) {
+        out.push(`[오류] 이메일이 필요해 — 다시 연락하려면 이메일이 꼭 있어야 해. ${LOGIN_HELP}`);
       } else {
-        const user = await findOrCreateUser(name, phone, emailArg);
+        const user = await findOrCreateUser(name, phone, effectiveEmail);
         out.push(`${user.name}님, 로그인 완료. 이제 "AI/ML 프로젝트 찾아줘"처럼 바로 검색해봐.`);
-        if (user.email) out.push(`이메일: ${user.email}`);
+        out.push(`이메일: ${user.email}`);
         if (user.skills.length) out.push(`저장된 스킬: ${user.skills.join(", ")}`);
         return { output: out.join("\n"), lastProjectId, session: { name: user.name, phone: user.phone } };
       }
@@ -329,6 +333,19 @@ export async function processCommand(rawLine: string, ctx: CommandContext): Prom
           out.push(`이메일: ${user.email || "(미설정)"}`);
           out.push(`스킬: ${user.skills.join(", ") || "(미설정)"}`);
           out.push(`완료 프로젝트: ${user.completed_projects.join(", ") || "없음"}`);
+        }
+      }
+    } else if ((cmd === "이메일" || cmd === "email") && parts.length >= 2) {
+      if (!ctx.session) {
+        out.push(`이메일을 등록하려면 먼저 로그인해야 해. ${LOGIN_HELP}`);
+      } else {
+        const addr = parts.slice(1).join("").trim();
+        if (!/^[\w.+-]+@[\w-]+\.[\w.-]+$/.test(addr)) {
+          out.push(`이메일 형식이 이상해: "${addr}". 예) 이메일 junho@psynet.co.kr`);
+        } else {
+          const { error } = await supabase.from("users").update({ email: addr }).eq("phone", ctx.session.phone);
+          if (error) throw new Error(error.message);
+          out.push(`이메일 등록됨: ${addr} — 이제 다시 연락할 수 있어. 고마워!`);
         }
       }
     } else if (cmd === "스킬" && parts.length >= 2) {

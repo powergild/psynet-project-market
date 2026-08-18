@@ -43,6 +43,22 @@ export default function StartPage() {
           ))}
         </div>
       </section>
+      <p
+        style={{
+          textAlign: "center",
+          margin: "30px auto 8px",
+          maxWidth: 640,
+          fontSize: 13,
+          lineHeight: 1.7,
+          color: "#8a94a6",
+        }}
+      >
+        연락처가 바뀌었거나 다시 연락받고 싶으면{" "}
+        <a href="mailto:junholee940930@psynet.co.kr" style={{ color: "#7CFF9B", textDecoration: "none" }}>
+          junholee940930@psynet.co.kr
+        </a>{" "}
+        로 메일 주세요.
+      </p>
     </main>
   );
 }

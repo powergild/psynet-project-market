@@ -35,7 +35,7 @@ function greeting(session: Session | null): LogLine[] {
   }
   return [
     { text: "PROJECT MARKET", cls: "banner" },
-    { text: "누구세요? 이름이랑 전화번호부터 알려줘 (예: 이준호 010-1234-5678, 이메일은 선택)", cls: "dim" },
+    { text: "누구세요? 이름·전화번호·이메일 알려줘 — 다시 연락하려면 이메일이 꼭 필요해 (예: 이준호 010-1234-5678 junho@psynet.co.kr)", cls: "dim" },
   ];
 }
 
