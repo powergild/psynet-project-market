@@ -7,8 +7,10 @@ import {
 } from "@/lib/supabase";
 
 export async function getConnectStats(): Promise<{ waiting: number; activeRooms: number }> {
+  // "대기 중" 수도 실시간 접속자만 — 최근 12초 내 폴링한 큐 항목만 카운트(유령 제외).
+  const fresh = new Date(Date.now() - 12_000).toISOString();
   const [{ count: waiting }, { count: activeRooms }] = await Promise.all([
-    supabase.from("connect_queue").select("*", { count: "exact", head: true }),
+    supabase.from("connect_queue").select("*", { count: "exact", head: true }).gt("joined_at", fresh),
     supabase.from("connect_rooms").select("*", { count: "exact", head: true }).eq("status", "active"),
   ]);
   return { waiting: waiting ?? 0, activeRooms: activeRooms ?? 0 };

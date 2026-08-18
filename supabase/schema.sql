@@ -134,6 +134,11 @@ declare
   v_partner record;
   v_room_id bigint;
 begin
+  -- 유령 정리: 최근 12초 내 폴링(=생존신호) 없는 대기열 항목 제거.
+  -- 프론트가 2.5초마다 재폴링하며 joined_at 을 now() 로 갱신하므로, 12초 초과면 이탈로 간주.
+  -- (탭 강제종료/모바일 백그라운드 등 leave 비콘 미발화 케이스 방어 → 실시간 접속자만 매칭)
+  delete from connect_queue where joined_at < now() - interval '12 seconds';
+
   -- 이미 활성 방에 있으면 그 방 반환 (새로고침/재진입 대응)
   select id into v_room_id from connect_rooms
     where status = 'active'
@@ -143,9 +148,10 @@ begin
     return v_room_id;
   end if;
 
-  -- 대기열에서 상대 탐색
+  -- 대기열에서 상대 탐색 — 최근 12초 내 폴링한 '실시간 접속자'만
   select * into v_partner from connect_queue
     where phone <> p_phone
+      and joined_at > now() - interval '12 seconds'
     order by joined_at
     limit 1
     for update skip locked;
