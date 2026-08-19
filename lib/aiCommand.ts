@@ -11,6 +11,7 @@ export type AiIntent =
   | "apply" // 신청/지원
   | "status" // 특정 프로젝트 현황
   | "count" // 프로젝트 개수
+  | "stats" // 지금 접속/대기 인원, 대화방, 등록 유저 등 현황
   | "my_applications" // 내 신청 목록
   | "my_projects" // 내가 PM인 프로젝트 신청자
   | "profile" // 내 프로필
@@ -37,6 +38,7 @@ const SCHEMA = {
         "apply",
         "status",
         "count",
+        "stats",
         "my_applications",
         "my_projects",
         "profile",
@@ -70,6 +72,7 @@ const SYSTEM = `너는 사내 프로젝트 마켓 터미널의 명령 해석기�
 - apply: 특정 프로젝트에 신청/지원하고 싶음 (예: "거기 신청할래", "이거 참여하고 싶어")
 - status: 특정 프로젝트의 신청 현황/상태를 보고 싶음
 - count: 전체 프로젝트가 몇 개인지
+- stats: 지금 접속/대기 인원, 대화 중인 방, 등록된 유저 수 등 서비스 현황 (예: "지금 몇 명 접속했어?", "대기 인원 얼마나 돼?", "사람 몇 명 있어?", "현황판 보여줘")
 - my_applications: 내가 신청한 목록
 - my_projects: 내가 PM인 프로젝트에 누가 신청했는지
 - profile: 내 프로필/스킬 조회

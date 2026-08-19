@@ -16,6 +16,7 @@ import { ALL_SKILLS, getProject, gradeFor, listProjects, type Project } from "@/
 import { extractEmail, extractPhone, findOrCreateUser, getUserByPhone, normalizePhone, type Session } from "@/lib/auth";
 import { getOwnedProjectIds } from "@/lib/pmMap";
 import { interpret, type AiResult } from "@/lib/aiCommand";
+import { getConnectStats } from "@/lib/connect";
 
 export type CommandContext = {
   session: Session | null;
@@ -110,6 +111,15 @@ function nlToCommand(
     if (loginCmd) return { command: loginCmd, lastProjectId };
   }
 
+  // 서비스 현황(접속/대기 인원·대화방·등록 유저). 인사보다 먼저 — "안녕 지금 몇명이야?"도 통계로.
+  if (["접속", "온라인", "몇 명", "몇명", "대기 인원", "대기인원", "현황판", "통계", "사람 수", "사람수", "인원"].some((k) => text.includes(k))) {
+    return { command: "통계", lastProjectId };
+  }
+  // 인사
+  if (["안녕", "하이", "ㅎㅇ", "반가", "hello"].some((k) => text.includes(k))) {
+    return { command: "인사", lastProjectId };
+  }
+
   const pidMatch = text.match(/(prj-\d{4}-\d-\d{3})/i);
   const pid = pidMatch ? pidMatch[1].toLowerCase() : null;
 
@@ -202,6 +212,8 @@ function aiToCommand(
   switch (ai.intent) {
     case "count":
       return { command: "개수", lastProjectId };
+    case "stats":
+      return { command: "통계", lastProjectId };
     case "my_applications":
       return { command: "내신청", lastProjectId };
     case "my_projects":
@@ -300,7 +312,7 @@ export async function processCommand(rawLine: string, ctx: CommandContext): Prom
 
   try {
     if (cmd === "도움말" || cmd === "help") {
-      out.push('사용법: 프로젝트명을 그대로 말하면 됨. 예) "다크모드 프로젝트 찾아줘" / "거기 신청할래" / "현황 어때?" / "내 신청 보여줘" / "내 프로젝트에 누가 신청했어?" / "<이름> 수락해줘"(PM 전용) / "마케팅 스킬 추가해줘" / "기획 스킬 빼줘" / 스킬 <a,b,c>(전체 교체) / 이메일 <주소>(등록·변경) / 로그인 <이름> <전화번호> <이메일>');
+      out.push('사용법: 프로젝트명을 그대로 말하면 됨. 예) "다크모드 프로젝트 찾아줘" / "거기 신청할래" / "현황 어때?" / "내 신청 보여줘" / "내 프로젝트에 누가 신청했어?" / "<이름> 수락해줘"(PM 전용) / "마케팅 스킬 추가해줘" / "기획 스킬 빼줘" / "지금 몇 명 접속했어?"(현황) / 스킬 <a,b,c>(전체 교체) / 이메일 <주소>(등록·변경) / 로그인 <이름> <전화번호> <이메일>');
     } else if (cmd === "로그인") {
       const name = parts[1];
       const phone = parts[2] ? normalizePhone(parts[2]) : null;
@@ -525,6 +537,17 @@ export async function processCommand(rawLine: string, ctx: CommandContext): Prom
           }
         }
       }
+    } else if (cmd === "통계" || cmd === "현황판") {
+      const [{ waiting, activeRooms }, { count: users }] = await Promise.all([
+        getConnectStats(),
+        supabase.from("users").select("*", { count: "exact", head: true }),
+      ]);
+      const inChat = activeRooms * 2; // 방당 2명
+      out.push(`지금 매칭 대기 ${waiting}명 · 대화 중인 방 ${activeRooms}개(참여 ${inChat}명)`);
+      out.push(`등록 유저 누적 ${users ?? 0}명 · 프로젝트 ${listProjects().length}건`);
+      out.push(`(실시간 접속 정밀 추적은 안 해 — 매칭 대기·대화 현황 기준)`);
+    } else if (cmd === "인사") {
+      out.push(`안녕! 프로젝트 마켓이야. 편하게 말하면 돼 — 예) "AI 관련 프로젝트 찾아줘", "지금 몇 명 접속했어?", "내 신청 보여줘". 자세한 건 '도움말'.`);
     } else {
       out.push(`모르는 명령어: ${line}  ('도움말' 입력)`);
     }
