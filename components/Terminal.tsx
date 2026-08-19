@@ -30,7 +30,7 @@ function greeting(session: Session | null): LogLine[] {
   if (session) {
     return [
       { text: "PROJECT MARKET", cls: "banner" },
-      { text: `다시 왔네, ${session.name}님. 바로 검색하면 됨 — 예) "AI/ML 프로젝트 찾아줘"`, cls: "dim" },
+      { text: `다시 왔네, ${session.name}님. 뭐든 편하게 말해봐 — 알아서 알아들어.`, cls: "dim" },
     ];
   }
   return [
