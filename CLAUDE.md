@@ -19,6 +19,8 @@ PSYNET 내부 프로젝트 매칭 플랫폼. Next.js 15(App Router) + TypeScript
   - `scripts/migrate-projects.mjs` — 예전에 `source-data/projects/*.md`(gitignored, 로컬에만 있음) 기준으로 생성하던 원래 스크립트. 지금은 엑셀 기준으로 재생성했지만 참고용으로 남겨둠.
 - **`project_pm_map`** (Supabase, 비공개 테이블) — 실명 PM 매핑. "내 프로젝트에 누가 신청했어?" 같은 PM 자가관리 기능에서 로그인한 사람 실명과 대조하는 용도로만 서버 코드에서 조회. **화면에 그대로 노출 금지.** `scripts/seed-pm-map.mjs`는 예전 source-data 기준 시드 스크립트 — 지금은 엑셀에서 직접 읽어 업서트하는 애드혹 스크립트를 매번 새로 씀.
 
+- **자연어 해석 모델**: `lib/aiCommand.ts`의 `claude-haiku-4-5`. **항상 최신 Haiku를 쓴다는 방침** — 다만 "최신"을 자동 추적하는 별칭은 API에 없으므로, 새 Haiku가 나오면 이 문자열을 직접 교체할 것. 모델 ID에 날짜 접미사(`-20251001` 등)를 붙이지 말 것. Haiku 4.5는 `effort` 파라미터 미지원.
+
 ## 인증 모델
 
 - **일반 로그인**: 비밀번호 없음. 이름+전화번호만으로 자가등록(`users` 테이블, phone이 유니크 키). `lib/auth.ts`.

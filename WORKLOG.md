@@ -67,6 +67,8 @@
   - 수신 주소 `junholee940930@psynet.co.kr` (env `ALERT_EMAIL_TO`로 변경 가능).
   - 메일 전송은 Resend HTTP API(fetch만 사용, npm 의존성 추가 없음). 키 없으면 서버 로그 폴백.
   - `npm run build` 통과 확인.
+- **`/start` 화면의 명령어 예시 그리드 제거** — "이렇게 말하면 돼요" 10개 목록이 "이 10개만 된다"로 읽혀 자연어 컨셉과 충돌. `lib/examples.ts`, `app/globals.css`의 `.examples*` 블록까지 같이 삭제. 온보딩 힌트는 터미널 첫 줄 한 줄로 충분.
+- **자연어 해석 모델 확인** — 이미 `claude-haiku-4-5`(현재 최신 Haiku, 날짜 접미사 없는 정식 ID)라 변경 불필요. 호출부도 정상(Haiku 4.5 미지원인 `effort` 미사용).
 
 ### 2026-08-18 (커밋 기록 기반 요약)
 - `4403a61` connect 매칭 실시간 접속자만 필터링 (유령 대기자 방어) + 마이그레이션 SQL·적용 스크립트 추가

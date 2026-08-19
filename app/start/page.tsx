@@ -1,5 +1,4 @@
 import Terminal from "@/components/Terminal";
-import { COMMAND_EXAMPLES } from "@/lib/examples";
 import { listProjects } from "@/lib/projects";
 
 const RECRUITING_STATUS = new Set(["기획", "예정", "개발"]);
@@ -32,17 +31,6 @@ export default function StartPage() {
         </a>
       </section>
       <Terminal />
-      <section className="examples">
-        <div className="examples-title">이렇게 말하면 돼요</div>
-        <div className="examples-grid">
-          {COMMAND_EXAMPLES.map((e) => (
-            <div className="examples-item" key={e.cmd}>
-              <span className="examples-cmd">&quot;{e.cmd}&quot;</span>
-              <span className="examples-desc">{e.desc}</span>
-            </div>
-          ))}
-        </div>
-      </section>
       <p
         style={{
           textAlign: "center",

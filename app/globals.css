@@ -290,52 +290,6 @@ a {
   border-radius: 4px;
 }
 
-/* ---------- Examples ---------- */
-
-.examples {
-  max-width: 720px;
-  margin: 0 auto;
-  padding: 8px 20px 64px;
-}
-
-.examples-title {
-  text-align: center;
-  color: #8c887e;
-  font-size: 12px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  margin-bottom: 16px;
-}
-
-.examples-grid {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.examples-item {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 8px;
-  padding: 10px 14px;
-  border: 1px solid #232019;
-  border-radius: 4px;
-  font-size: 13px;
-}
-
-.examples-cmd {
-  color: #d8d4c8;
-  font-family: "SF Mono", "IBM Plex Mono", "Menlo", monospace;
-}
-
-.examples-desc {
-  color: #6b675e;
-}
-
-.examples-desc::before {
-  content: "→ ";
-}
 
 /* ---------- Project cards ---------- */
 
