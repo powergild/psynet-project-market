@@ -1,5 +1,7 @@
 # PROJECT MARKET (mitocreate.ai)
 
+> **진행 상황·다음 할 일은 [WORKLOG.md](./WORKLOG.md)에 있음.** 이 파일은 구조·규칙 설명용(잘 안 바뀜), WORKLOG는 세션마다 갱신. 작업 시작 전 WORKLOG 먼저 읽고, 끝나면 WORKLOG부터 업데이트할 것.
+
 PSYNET 내부 프로젝트 매칭 플랫폼. Next.js 15(App Router) + TypeScript + Supabase(Postgres). Vercel(`psynet-project-market`)에 배포, 도메인 `mitocreate.ai`. GitHub 저장소 `junholee940930/psynet-project-market`는 **public** — 실명·비공개 데이터는 절대 git에 커밋하지 말 것 (DB에만 저장).
 
 원래 사내에서 쓰던 Python 로컬 도구(`app.py`, 파일 기반 저장)를 서버리스 배포 가능한 형태로 이식하면서 시작됐고, 이후 여러 차례 기능이 추가/단순화됨.
@@ -20,7 +22,24 @@ PSYNET 내부 프로젝트 매칭 플랫폼. Next.js 15(App Router) + TypeScript
 ## 인증 모델
 
 - **일반 로그인**: 비밀번호 없음. 이름+전화번호만으로 자가등록(`users` 테이블, phone이 유니크 키). `lib/auth.ts`.
-- **관리자(`/admin`)**: 비밀번호 하나(`ADMIN_PASSWORD` env, 현재 `psynet1234`)로 보호. sha256 해시를 httpOnly 쿠키(`pm_admin`)에 저장. `lib/adminAuth.ts`.
+- **관리자(`/admin`)**: 비밀번호 하나(`ADMIN_PASSWORD` env)로 보호. **값은 문서에 적지 말 것** — Vercel 환경변수와 로컬 `.env.local`에만 존재(2026-08-19 노출 이력으로 교체됨). sha256 해시를 httpOnly 쿠키(`pm_admin`)에 저장. `lib/adminAuth.ts`.
+
+### 관리자 이상 접근 알림
+
+비밀번호를 선제적으로 바꾸는 대신, **유출 징후가 보일 때 메일로 알리고 그때 교체**하는 구조. `lib/adminAlert.ts` + `lib/mailer.ts`.
+
+| 감지 | 조건 | 의미 |
+|---|---|---|
+| 새 IP 로그인 성공 | 기록에 없던 IP에서 `login_success` | 🔴 비밀번호 유출 의심 — 교체 필요 |
+| 무차별 대입 | 같은 IP 10분간 5회 이상 실패 | 🟠 아직 안 뚫림 |
+| 분산 시도 | 10분간 서로 다른 IP 3곳 이상 실패 | 🟠 봇 스캔 |
+| 쿠키 위조 | 같은 IP 10분간 유효하지 않은 토큰 3회 이상 | 🟠 로그인 우회 시도 |
+
+- 같은 알림은 30분 쿨다운(`admin_alert_state`). 새 IP 알림은 IP별 1회.
+- 로그 테이블 `admin_access_log`. 감시 코드는 예외를 밖으로 던지지 않으므로 감시가 죽어도 로그인은 정상 동작.
+- 수신 주소는 `ALERT_EMAIL_TO` env. `RESEND_API_KEY`가 없으면 메일 미발송 + 서버 로그만 남김.
+- **선행: `supabase/migrations/2026-08-19-admin-access-alert.sql`을 Supabase SQL Editor에서 실행해야 함.**
+
 ## 미토크리에이트 상세
 
 **컨셉**: 실명제 랜덤 1:1 매칭 채팅. 누구나 이름+전화번호로 로그인하면 참여(폐쇄형 추천/초대 구조는 제거됨 — 초대코드·외부인 한도·`invites`·`redeemInvite` 없음). `users.is_external` 컬럼은 DB에 남아있지만 사용 안 함.
