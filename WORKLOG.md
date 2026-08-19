@@ -12,26 +12,20 @@
 
 | 항목 | 상태 |
 |---|---|
-| 브랜치 | `main` (origin/main과 동기화됨, ahead/behind 0) |
-| 마지막 커밋 | `4403a61` 2026-08-18 17:09 — connect 매칭: 실시간 접속자만 (유령 방어) |
-| 미커밋 변경 | `.claude/launch.json` (dev 실행 구성 이름을 `미토 웹페이지` → `mitocreate-web`로 변경, 기능 영향 없음) |
-| 배포 | Vercel `psynet-project-market` → `mitocreate.ai` |
+| 브랜치 | `main` |
+| 레포 | **`powergild/psynet-project-market`** (2026-08-19 이전됨) · **public** |
+| 배포 | **`git push`만으로 Vercel 자동배포**(~45s Ready). Vercel 프로젝트는 junholee940930 계정. `vercel --prod` 불필요. |
+| 이 PC 자격 | gh 활성계정 = **powergild**(레포 소유자). Vercel CLI = junholee940930(프로젝트 소유자). |
 
 ### ⚠️ 열린 작업 (다음 세션에서 제일 먼저 확인)
 
-1. **Supabase RPC 마이그레이션 적용 여부 미확인** — 최우선
-   - 파일: `supabase/migrations/2026-08-18-connect-liveness.sql`
-   - 내용: `connect_match_or_queue`에 12초 신선도 필터 + 오래된 큐 정리, `getConnectStats` 대기 카운트도 최근 12초 내만
-   - **git push / Vercel 배포로는 반영되지 않음.** Supabase SQL Editor에서 직접 실행하거나 `SUPABASE_DB_URL` 설정 후 `node scripts/apply-connect-liveness.mjs` 실행 필요.
-   - 적용됐는지 확인: Supabase에서 `connect_match_or_queue` 함수 정의에 `12 seconds` / `joined_at` 신선도 조건이 들어있는지 본다. 적용 안 됐으면 코드(`lib/connect.ts`)만 새 로직이고 DB는 옛 로직이라 **유령 대기자가 계속 매칭됨**.
-   - 적용 확인 후 이 항목 체크 표시하고 결과를 아래 세션 로그에 남길 것.
+1. ~~**Supabase RPC 마이그레이션 적용**~~ ✅ **완료(2026-08-19)** — SQL Editor에서 `2026-08-18-connect-liveness.sql` 실행됨. `connect_match_or_queue` 12초 신선도 필터 동작, 유령 큐 0 확인.
 
-2. **관리자 비밀번호 — 교체는 보류, 감시로 대체 (2026-08-19 결정)**
-   - repo private 전환 완료, `CLAUDE.md`에서 값 제거 완료.
-   - **당장 교체하지 않음.** 대신 이상 접근 알림을 붙이고, 알림이 오면 그때 교체하기로 함.
-   - 교체하게 될 때 절차: Vercel env `ADMIN_PASSWORD` 수정 → `npx vercel --prod --yes` 재배포 → 로컬 `.env.local` 동기화.
-     (토큰이 sha256(비밀번호)라 교체 시 기존 관리자 쿠키는 자동 무효화됨)
-   - git history rewrite는 하지 않기로 함.
+2. 🔴 **관리자 비밀번호 교체 — 이제 "보류" 아님, 지금 필요 (2026-08-19 승격)**
+   - repo가 **다시 public**이 됨(배포 위해) → **git history의 옛 비밀번호가 재노출**. private 전환 완화책이 무효화됨.
+   - 감시(이상접근 알림)만으로는 부족 — **`ADMIN_PASSWORD`를 교체할 것.**
+   - 절차: Vercel env `ADMIN_PASSWORD` 수정 → **`git push`(빈 커밋)로 자동재배포** → 로컬 `.env.local` 동기화. (sha256 토큰이라 교체 시 기존 관리자 쿠키 자동 무효화)
+   - 대안(private 유지가 우선이면): repo 다시 private + Vercel을 powergild 계정으로 완전 이전(그래야 배포 유지). git history rewrite는 여전히 안 하기로 함(교체가 더 간단).
 
 3. **알림 메일 활성화 — 사용자 조치 필요**
    - 코드는 완성됐지만 `RESEND_API_KEY`가 없으면 메일이 안 나가고 서버 로그에만 남는다.
@@ -54,6 +48,18 @@
 ---
 
 ## 세션 로그
+
+### 2026-08-19 (CLI 세션 · 배포 파이프라인 대수술)
+- **🚨 배포 근본 원인 규명 + 해결**: 며칠간 push해도 프로덕션 반영 안 되던 것 = **Vercel Hobby가 "협업자(powergild)가 push한 private 레포 커밋"의 배포를 차단**하고 있었음(대시보드 "Deployment Blocked", CLI엔 status `UNKNOWN`으로 보임). 이 PC의 gh/git 자격이 powergild(협업자)였고 소유자는 junholee940930이라 발생.
+  - 해결: **GitHub 레포를 `junholee940930/psynet-project-market` → `powergild/…`로 Transfer + 다시 public 전환**. → 협업 차단 소멸, 이제 **`git push`만으로 자동배포됨(실측: push 20s 뒤 배포 생성, ~45s Ready, 도메인 자동 반영)**. `vercel --prod` 불필요.
+  - Vercel 프로젝트는 junholee940930 계정 그대로 둠(public이라 문제없음, 사용자 결정). 이 PC gh 활성계정=powergild(레포 소유자).
+- **🔴 보안 후속(필수)**: repo를 다시 public으로 바꾸면서 **git history에 남아있는 옛 관리자 비밀번호가 재노출됨**(교체·history rewrite 안 된 상태). → **`ADMIN_PASSWORD` 교체 필요**(열린작업 2를 "보류"→"지금 교체"로 승격). private 유지가 우선이면 대신 Vercel을 powergild로 이전(A안) 후 다시 private.
+- **connect liveness SQL 적용 완료** — 열린작업 1 해결. 사용자가 Supabase SQL Editor에서 `2026-08-18-connect-liveness.sql` 실행함. 확인: `connect_queue` 유령 0, 매칭 12초 신선도 필터 동작. (스코어러/스킬 매핑은 별도 `stove-league/`—이 repo 밖.)
+- **AI 자연어 해석 라이브 복구** — 원인은 코드 아니라 **Anthropic 크레딧 부족**이었음. 사용자가 크레딧 충전 → `claude-haiku-4-5` 정상 작동(자유문장 검색 실측 통과).
+- **현황/접속자 조회 + 인사 intent 추가**(`stats` intent + 규칙 트리거 + 핸들러). "지금 몇 명 접속했어?" → 대기/대화방/등록유저 수 응답, "안녕" → 친절 안내(기존 "모르는 명령어" 해소).
+- **이메일 필수화** 라이브(로그인 시 이메일 필수, 기존 저장 이메일 있으면 자동충족) + `/start` 하단 메일 CTA + `이메일 <주소>` 명령.
+- **터미널 환영 문구 예시 제거** — 로그인 인사에서 `예) "AI/ML 프로젝트 찾아줘"` 빼고 "뭐든 편하게 말해봐 — 알아서 알아들어."로(AI가 자유문장 해석하므로).
+- 폴더명 `미토 웹페이지` → `mitocreate-web` 리네임(경로 참조 갱신 완료).
 
 ### 2026-08-19
 - 작업 인계용 `WORKLOG.md` 신설 (Desktop 앱 ↔ CLI 양방향 이어받기 목적).

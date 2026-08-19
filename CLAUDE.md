@@ -2,7 +2,7 @@
 
 > **진행 상황·다음 할 일은 [WORKLOG.md](./WORKLOG.md)에 있음.** 이 파일은 구조·규칙 설명용(잘 안 바뀜), WORKLOG는 세션마다 갱신. 작업 시작 전 WORKLOG 먼저 읽고, 끝나면 WORKLOG부터 업데이트할 것.
 
-PSYNET 내부 프로젝트 매칭 플랫폼. Next.js 15(App Router) + TypeScript + Supabase(Postgres). Vercel(`psynet-project-market`)에 배포, 도메인 `mitocreate.ai`. GitHub 저장소 `junholee940930/psynet-project-market`는 **public** — 실명·비공개 데이터는 절대 git에 커밋하지 말 것 (DB에만 저장).
+PSYNET 내부 프로젝트 매칭 플랫폼. Next.js 15(App Router) + TypeScript + Supabase(Postgres). Vercel(`psynet-project-market`, 계정 junholee940930)에 배포, 도메인 `mitocreate.ai`. GitHub 저장소 **`powergild/psynet-project-market`**(2026-08-19 junholee940930에서 이전)는 **public** — 실명·비공개 데이터는 절대 git에 커밋하지 말 것 (DB에만 저장).
 
 원래 사내에서 쓰던 Python 로컬 도구(`app.py`, 파일 기반 저장)를 서버리스 배포 가능한 형태로 이식하면서 시작됐고, 이후 여러 차례 기능이 추가/단순화됨.
 
@@ -78,9 +78,9 @@ PSYNET 내부 프로젝트 매칭 플랫폼. Next.js 15(App Router) + TypeScript
 ## 배포
 
 - `git add` (파일 명시적으로 지정 — `agency-agents-main/`, `project-market-landing_2.html` 등 무관한 미커밋 파일들이 워킹디렉토리에 계속 있음, 절대 한꺼번에 add 금지)
-- `npx vercel --prod --yes`
+- **배포는 `git push origin main`이면 끝** — 레포가 public + Vercel git 연동 유지라 push마다 자동배포(실측 ~45s Ready, 2026-08-19). `npx vercel --prod --yes`는 즉시배포 원할 때만(선택).
 - Windows Git Bash에서 커밋 메시지에 `/`로 시작하는 경로 비슷한 문자열(`/start` 등) 쓰면 MSYS가 Windows 경로로 자동변환해서 메시지가 깨짐 — `MSYS_NO_PATHCONV=1 git commit ...`로 방지
-- `git push`는 Windows Credential Manager가 비대화형 세션에서 멈출 수 있어서 보통 생략 — Vercel 배포만으로 프로덕션 반영됨. 사용자가 나중에 직접 push 필요.
+- push 자격: 이 PC gh 활성계정 = **powergild**(레포 소유자), remote도 powergild. 커밋 author는 junholee940930. `git push` 정상. (다시 403/차단이면 `gh auth status`로 powergild 활성인지 확인.)
 - Node/npm이 PATH에 없는 환경 → `export PATH="/c/Program Files/nodejs:$PATH"` 붙여서 실행
 - 로컬 dev 서버는 `.claude/launch.json` 대신 그냥 `nohup npm run dev > /tmp/dev.log 2>&1 &`로 띄우고 끝나면 `netstat`로 PID 찾아서 `taskkill //PID <n> //F` — `preview_start` 도구는 한글 경로 때문에 자주 깨짐(cmd.exe 인코딩 문제).
 
