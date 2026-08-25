@@ -16,7 +16,7 @@ PSYNET 내부 프로젝트 매칭 플랫폼. Next.js 15(App Router) + TypeScript
 
 - **`projects` 테이블(Supabase)** — 프로젝트 카탈로그의 **단일 소스**. 사용자가 터미널 "등록"으로 직접 추가한다(등록자=PM, pm_phone에 소유자 저장, pm은 마스킹 표시명). 조회/생성은 서버 전용 **`lib/projectsDb.ts`**(`fetchProjects`/`getProjectById`/`createProject`). 순수 타입·헬퍼(`gradeFor`/`ALL_SKILLS`)만 `lib/projects.ts`에 있고 client에서도 import 가능(supabase 미포함 — 서비스키 누출 방지).
   - 공개용 조회 API: **`GET /api/projects`**(전체, 안전필드), `GET /api/recruiting`(모집중 필터). `/projects` client 페이지는 이 API로 로드.
-  - 등록 경로: 터미널 → `nlToCommand`/AI `register` 인텐트 → `commands.ts`의 `등록` 핸들러 → `createProject` + `project_pm_map` 업서트. 제목/설명은 AI(Haiku)로 추출, 키 없으면 휴리스틱 폴백. 스킬은 `ALL_SKILLS` 결정적 스캔.
+  - 등록/삭제는 **대화형(여러 턴)** — `commands.ts`의 `Pending` 상태(`{kind:"register",step,draft}` / `{kind:"delete",projectId,title}`)를 `lastProjectId`처럼 client↔server로 주고받아 맥락을 기억한다(exec body의 `pending` 필드, `Terminal.tsx`의 `pending` state). 등록: "등록할래" → 제목→스킬→소개→"응/아니" 확인 순서로 되물어 생성(한 문장에서 제목 오인 방지). 삭제: "이거 삭제해줘" → 직전(lastProjectId) 또는 이름매칭으로 대상 잡고, **본인(pm_phone) 것만**, "응/아니" 확인 후 `deleteProjectCascade`(projects+applications+participants+pm_map). "취소"로 언제든 이탈. 스킬은 `ALL_SKILLS` 결정적 스캔.
   - **선행 SQL**: `supabase/migrations/2026-08-25-projects-table.sql`을 Supabase SQL Editor에서 1회 실행(완료됨 2026-08-25).
 - **[구·폐기] `data/projects.json`** — 예전 빌드타임 정적 카탈로그. 실서비스 전환 때 `[]`로 비웠고 코드에서 더 이상 import 안 함. 사내 엑셀 일괄시드 방식(`scripts/migrate-projects.mjs` 등)은 이제 안 씀.
 - **`project_pm_map`** (Supabase, 비공개 테이블) — 실명 PM 매핑. "내 프로젝트에 누가 신청했어?" 같은 PM 자가관리 기능에서 로그인한 사람 실명과 대조하는 용도로만 서버 코드에서 조회. **화면에 그대로 노출 금지.** `scripts/seed-pm-map.mjs`는 예전 source-data 기준 시드 스크립트 — 지금은 엑셀에서 직접 읽어 업서트하는 애드혹 스크립트를 매번 새로 씀.
