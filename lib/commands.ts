@@ -23,6 +23,7 @@ export type Pending =
   | { kind: "delete"; projectId: string; title: string }
   | { kind: "rename"; projectId: string; oldTitle: string }
   | { kind: "status"; projectId: string; title: string }
+  | { kind: "apply"; projectId: string; title: string }
   | null;
 
 // 프로젝트 상태 값(사용자 선택지). recruiting 필터는 "모집중"만 구인으로 침(page/recruiting).
@@ -55,7 +56,7 @@ export type CommandResult = {
 
 const KNOWN_CMDS = new Set([
   "도움말", "help", "프로필", "스킬", "스킬추가", "스킬삭제", "매칭", "방", "신청", "개수", "로그인", "로그아웃",
-  "내신청", "내프로젝트", "수락", "거절", "등록", "삭제", "제목수정", "상태변경",
+  "내신청", "내프로젝트", "수락", "거절", "등록", "삭제", "제목수정", "상태변경", "신청확인",
 ]);
 
 const isCancel = (t: string) => ["취소", "그만", "관둬", "됐어", "안할래", "안 할래"].some((k) => t.includes(k));
@@ -213,9 +214,8 @@ function nlToCommand(
   if (["신청", "지원", "참여", "들어가", "하고싶", "관심있"].some((k) => text.includes(k))) {
     const target = pickTarget(text, pid, lastProjectId, projects);
     if (target) {
-      const nameMatch = text.match(/(?:내\s*이름은|나는)\s*([가-힣A-Za-z0-9]+)/);
-      const name = nameMatch ? nameMatch[1] : session?.name ?? "나";
-      return { command: `신청 ${target} ${name}`, lastProjectId: target };
+      // 대화형 신청은 확인 스텝을 거친다(신청확인). 즉시 신청(신청 <id> <이름>)은 호감 UI 등 내부용.
+      return { command: `신청확인 ${target}`, lastProjectId: target };
     }
   }
 
@@ -270,7 +270,6 @@ function nlToCommand(
 function aiToCommand(
   ai: AiResult,
   lastProjectId: string | null,
-  session: Session | null,
   projects: Project[]
 ): { command: string | null; lastProjectId: string | null } {
   const kw = ai.keywords.join(" ").trim();
@@ -310,8 +309,7 @@ function aiToCommand(
     case "apply": {
       const target = pickTarget(kw, null, lastProjectId, projects);
       if (!target) return { command: null, lastProjectId };
-      const name = session?.name ?? "나";
-      return { command: `신청 ${target} ${name}`, lastProjectId: target };
+      return { command: `신청확인 ${target}`, lastProjectId: target };
     }
     case "search": {
       const terms = [kw, ...ai.skills].filter(Boolean).join(" ").trim();
@@ -471,6 +469,26 @@ export async function processCommand(rawLine: string, ctx: CommandContext): Prom
         return { output: `[오류] ${e instanceof Error ? e.message : String(e)}`, lastProjectId, pending: null };
       }
     }
+    if (pending.kind === "apply") {
+      if (isNo(line)) return { output: "신청 취소했어.", lastProjectId, pending: null };
+      if (isYes(line)) {
+        if (!ctx.session) return { output: "로그인이 풀렸어. 다시 로그인하고 신청해줘.", lastProjectId, pending: null };
+        try {
+          const existing = (await readApps(pending.projectId)).find((r) => r.applicant === ctx.session!.name);
+          if (existing && existing.status !== "rejected") {
+            return { output: `이미 신청돼 있어 (상태: ${STATUS_LABEL[existing.status]}).`, lastProjectId: pending.projectId, pending: null };
+          }
+          const { error } = await supabase
+            .from("applications")
+            .insert({ project_id: pending.projectId, applicant: ctx.session.name, role: "참여자", status: "pending" });
+          if (error) throw new Error(error.message);
+          return { output: `『${pending.title}』에 신청 완료! PM 수락을 기다려줘.`, lastProjectId: pending.projectId, pending: null };
+        } catch (e) {
+          return { output: `[오류] ${e instanceof Error ? e.message : String(e)}`, lastProjectId, pending: null };
+        }
+      }
+      return { output: `『${pending.title}』에 참여자로 신청할까? "응" 또는 "아니".`, lastProjectId, pending };
+    }
   }
 
   let parts = line.split(/\s+/);
@@ -486,7 +504,7 @@ export async function processCommand(rawLine: string, ctx: CommandContext): Prom
       // 규칙 파서가 못 잡음 → AI 폴백(키 없으면 null).
       const ai = await interpret(line);
       if (ai) {
-        const aiCmd = aiToCommand(ai, lastProjectId, ctx.session, projects);
+        const aiCmd = aiToCommand(ai, lastProjectId, projects);
         lastProjectId = aiCmd.lastProjectId;
         if (aiCmd.command) {
           parts = aiCmd.command.split(/\s+/);
@@ -724,6 +742,27 @@ export async function processCommand(rawLine: string, ctx: CommandContext): Prom
         const rows = await readApps(project.id);
         out.push(...roomLines(rows, project.title));
         lastProjectId = project.id;
+      }
+    } else if (cmd === "신청확인" && parts.length >= 2) {
+      if (!ctx.session) {
+        out.push(`신청하려면 먼저 로그인해야 해. ${LOGIN_HELP}`);
+      } else {
+        const proj = getP(parts[1]);
+        if (!proj) {
+          out.push(`알 수 없는 프로젝트: ${parts[1]}`);
+        } else {
+          const existing = (await readApps(proj.id)).find((r) => r.applicant === ctx.session!.name);
+          if (existing && existing.status !== "rejected") {
+            out.push(`『${proj.title}』에 이미 신청했어 (상태: ${STATUS_LABEL[existing.status]}).`);
+            lastProjectId = proj.id;
+          } else {
+            return {
+              output: `『${proj.title}』에 참여자로 신청할까? (응 / 아니)`,
+              lastProjectId: proj.id,
+              pending: { kind: "apply", projectId: proj.id, title: proj.title },
+            };
+          }
+        }
       }
     } else if (cmd === "신청" && parts.length >= 3) {
       const pid = parts[1];
