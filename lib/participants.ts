@@ -4,7 +4,7 @@
 // (보안 등)의 참여 기록은 리스트에 안 나옴.
 
 import { supabase, type ProjectParticipantRow } from "@/lib/supabase";
-import { getProject } from "@/lib/projects";
+import { fetchProjects } from "@/lib/projectsDb";
 
 export type ParticipantProject = {
   projectId: string;
@@ -19,11 +19,12 @@ export async function getProjectsByParticipant(name: string): Promise<Participan
     .select("project_id, role")
     .eq("name", name);
   if (error) throw new Error(error.message);
+  const titleById = new Map((await fetchProjects()).map((p) => [p.id, p.title]));
   const out: ParticipantProject[] = [];
   for (const row of (data ?? []) as Pick<ProjectParticipantRow, "project_id" | "role">[]) {
-    const p = getProject(row.project_id);
-    if (!p) continue; // 카탈로그에 없는 프로젝트는 제외
-    out.push({ projectId: row.project_id, title: p.title, role: row.role });
+    const title = titleById.get(row.project_id);
+    if (!title) continue; // 카탈로그에 없는 프로젝트는 제외
+    out.push({ projectId: row.project_id, title, role: row.role });
   }
   // PM을 위로, 그다음 제목순
   out.sort((a, b) => (a.role === "PM" ? -1 : b.role === "PM" ? 1 : a.title.localeCompare(b.title)));

@@ -1,7 +1,16 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { GRADE_COLOR, gradeFor, listProjects } from "@/lib/projects";
+import { GRADE_COLOR, gradeFor } from "@/lib/projects";
+
+type AllProject = {
+  id: string;
+  title: string;
+  pm: string;
+  status: string;
+  required_skills: string[];
+  summary: string;
+};
 
 const SESSION_KEY = "pm_session";
 
@@ -31,6 +40,7 @@ export default function ProjectsPage() {
   const [completed, setCompleted] = useState<string[]>([]);
   const [recruitingOnly, setRecruitingOnly] = useState(false);
   const [recruiting, setRecruiting] = useState<Recruiting[] | null>(null);
+  const [allProjects, setAllProjects] = useState<AllProject[] | null>(null);
 
   useEffect(() => {
     if (new URLSearchParams(window.location.search).get("recruiting") === "1") {
@@ -56,8 +66,16 @@ export default function ProjectsPage() {
       .catch(() => setRecruiting([]));
   }, [recruiting]);
 
+  useEffect(() => {
+    if (allProjects !== null) return;
+    fetch("/api/projects")
+      .then((r) => r.json())
+      .then((d) => setAllProjects(d.ok ? d.items : []))
+      .catch(() => setAllProjects([]));
+  }, [allProjects]);
+
   const hasHistory = completed.length > 0;
-  const projects = listProjects();
+  const projects = allProjects ?? [];
   const recruitingCount = recruiting?.length ?? null;
 
   return (
@@ -118,6 +136,10 @@ export default function ProjectsPage() {
             );
           })
         )
+      ) : allProjects === null ? (
+        <p className="sub">불러오는 중…</p>
+      ) : projects.length === 0 ? (
+        <p className="sub">아직 등록된 프로젝트가 없어. 터미널에서 &quot;프로젝트 등록할래&quot;로 첫 프로젝트를 올려봐.</p>
       ) : (
       projects.map((p) => {
         const overlap = p.required_skills.filter((s) => skills.includes(s));

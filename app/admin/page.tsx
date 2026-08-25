@@ -5,7 +5,7 @@ import AdminLogin from "@/components/AdminLogin";
 import AdminLogout from "@/components/AdminLogout";
 import AdminApplicationActions from "@/components/AdminApplicationActions";
 import AdminParticipants from "@/components/AdminParticipants";
-import { listProjects } from "@/lib/projects";
+import { fetchProjects } from "@/lib/projectsDb";
 
 export const dynamic = "force-dynamic";
 
@@ -32,9 +32,10 @@ export default async function AdminPage() {
     return <AdminLogin />;
   }
 
-  const [projectApps, users] = await Promise.all([
+  const [projectApps, users, allProjects] = await Promise.all([
     getAdminApplications(),
     getAllUsers(),
+    fetchProjects(),
   ]);
   const pendingTotal = projectApps.reduce(
     (s, p) => s + p.applications.filter((a) => a.status === "pending").length,
@@ -99,7 +100,7 @@ export default async function AdminPage() {
       <p className="sub" style={{ marginTop: 0 }}>
         프로젝트를 고르고 참여자를 추가/삭제해. 미토크리에이트에서 서로 호감이면 상대의 참여 프로젝트 리스트로 뜬다.
       </p>
-      <AdminParticipants projects={listProjects().map((p) => ({ id: p.id, title: p.title }))} />
+      <AdminParticipants projects={allProjects.map((p) => ({ id: p.id, title: p.title }))} />
 
       <h2 style={{ marginTop: 28, marginBottom: 8 }}>프로젝트 신청 현황</h2>
       <p className="sub" style={{ marginTop: 0 }}>

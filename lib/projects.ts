@@ -1,4 +1,5 @@
-import projectsData from "@/data/projects.json";
+// 순수 타입/헬퍼만 — supabase(서비스키) import 금지. client 컴포넌트에서도 안전하게 import 가능.
+// DB 조회/생성은 서버 전용 lib/projectsDb.ts 에 있음.
 
 export type Project = {
   id: string;
@@ -9,16 +10,6 @@ export type Project = {
   status: string;
   summary: string;
 };
-
-const PROJECTS = projectsData as Project[];
-
-export function listProjects(): Project[] {
-  return PROJECTS;
-}
-
-export function getProject(id: string): Project | undefined {
-  return PROJECTS.find((p) => p.id === id.toLowerCase());
-}
 
 export function gradeFor(mySkills: string[], required: string[]): "A" | "B" | "C" | "D" {
   if (!required.length) return "B";

@@ -1,8 +1,8 @@
 import LandingDemo from "@/components/LandingDemo";
-import { listProjects } from "@/lib/projects";
+import { fetchProjects } from "@/lib/projectsDb";
 
-// 구인 중 = 형성/개발 단계(기획·예정·개발). /api/recruiting과 동일 기준.
-const RECRUITING_STATUS = new Set(["기획", "예정", "개발"]);
+// 구인 중 = 형성/개발 단계 + 모집중. /api/recruiting과 동일 기준.
+const RECRUITING_STATUS = new Set(["기획", "예정", "개발", "모집중"]);
 
 // 외부 유입 캠페인(커뮤니티·광고 등)에서 ?ref=... 로 도착하면 #2 히어로("네 회사가 아니어도 돼")를,
 // 그 외 일반 방문은 기본 #1 히어로를 노출. (카피 전략: #1 메인 유지 + #2 캠페인 병행)
@@ -13,7 +13,7 @@ export default async function HomePage({
 }) {
   const params = await searchParams;
   const isCampaign = typeof params.ref === "string" && params.ref.length > 0;
-  const recruitingCount = listProjects().filter((p) => RECRUITING_STATUS.has(p.status)).length;
+  const recruitingCount = (await fetchProjects()).filter((p) => RECRUITING_STATUS.has(p.status)).length;
 
   return (
     <main className="landing">

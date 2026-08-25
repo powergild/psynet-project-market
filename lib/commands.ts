@@ -6,13 +6,12 @@
 // 로그인도 같은 이유로 서버 세션이 아니라 클라이언트가 들고 있는 {name, phone}을 매 요청마다
 // 실어보내는 방식이다 — 비밀번호 없는 자가등록형이라 phone이 곧 계정 식별자.
 //
-// 지분 협의(퍼센트/다중참여/확정)는 제거됨 — 검색(매칭)과 신청만 남긴다.
-// PM과 관리자는 역할이 다르다: PM은 터미널에서 본인이 PM인 프로젝트의 신청을
-// 수락/거절할 수 있고(project_pm_map으로 소유권 확인), 관리자는 /admin
-// 대시보드(비밀번호 보호)에서 전체 프로젝트 현황을 본다.
+// 프로젝트 카탈로그는 2026-08-25부터 DB(projects 테이블) 기반 — 사용자가 "등록"으로 직접 추가한다.
+// (기존 data/projects.json 정적 카탈로그는 비웠음.)
 
 import { supabase, type ApplicationRow } from "@/lib/supabase";
-import { ALL_SKILLS, getProject, gradeFor, listProjects, type Project } from "@/lib/projects";
+import { ALL_SKILLS, gradeFor, type Project } from "@/lib/projects";
+import { fetchProjects, createProject } from "@/lib/projectsDb";
 import { extractEmail, extractPhone, findOrCreateUser, getUserByPhone, normalizePhone, type Session } from "@/lib/auth";
 import { getOwnedProjectIds } from "@/lib/pmMap";
 import { interpret, type AiResult } from "@/lib/aiCommand";
@@ -32,13 +31,13 @@ export type CommandResult = {
 
 const KNOWN_CMDS = new Set([
   "도움말", "help", "프로필", "스킬", "스킬추가", "스킬삭제", "매칭", "방", "신청", "개수", "로그인", "로그아웃",
-  "내신청", "내프로젝트", "수락", "거절",
+  "내신청", "내프로젝트", "수락", "거절", "등록",
 ]);
 
-function resolveProjectIdScored(text: string): { id: string | null; score: number } {
+function resolveProjectIdScored(text: string, projects: Project[]): { id: string | null; score: number } {
   let bestId: string | null = null;
   let bestScore = 0;
-  for (const p of listProjects()) {
+  for (const p of projects) {
     const tokens = p.title.split(/[\s/·&\-()]+/).filter((t) => t.length >= 2);
     let score = 0;
     for (const t of tokens) {
@@ -57,16 +56,12 @@ function resolveProjectIdScored(text: string): { id: string | null; score: numbe
   return { id: bestId, score: bestScore };
 }
 
-function pickTarget(text: string, pid: string | null, lastProjectId: string | null): string | null {
-  const { id: weakId, score } = resolveProjectIdScored(text);
+function pickTarget(text: string, pid: string | null, lastProjectId: string | null, projects: Project[]): string | null {
+  const { id: weakId, score } = resolveProjectIdScored(text, projects);
   if (pid) return pid;
   if (score >= 2) return weakId;
   if (lastProjectId) return lastProjectId;
   return weakId;
-}
-
-function projectTitle(pid: string): string {
-  return getProject(pid)?.title ?? pid;
 }
 
 /** "로그인 이준호 01012345678 junho@x.com" 형태로 정규화. 이름/전화 못 찾으면 null. */
@@ -93,11 +88,31 @@ function tryParseLogin(text: string): string | null {
   return email ? `로그인 ${name} ${phone} ${email}` : `로그인 ${name} ${phone}`;
 }
 
+// 등록(구인) 의도로 볼 키워드. "프로젝트"만으로는 검색과 못 나누므로 등록 특화 표현을 본다.
+const REGISTER_KEYS = [
+  "등록", "올릴래", "올릴게", "올리고", "구인", "모집", "사람 구", "사람구",
+  "만들 사람", "만들사람", "새 프로젝트", "새프로젝트", "프로젝트 만들", "프로젝트 낼", "프로젝트 열", "프로젝트 개설",
+];
+
+/** AI 없이 제목만 대충 뽑는 폴백 — 등록/구인 표현과 스킬어를 제거한 나머지. */
+function heuristicTitle(text: string): string {
+  let t = ` ${text} `;
+  const drop = [
+    "프로젝트를", "프로젝트", "등록할래", "등록할게", "등록해줘", "등록하고", "등록", "올릴래", "올릴게", "올리고 싶어", "올리고",
+    "구인해줘", "구인", "모집해줘", "모집", "사람 구해요", "사람 구해", "사람구해", "만들 사람", "만들사람", "새로", "새 ", "좀", "해줘", "하고 싶어", "하고싶어", "할래", "할게", "필요해", "필요", "구하고 있어", "구하고", "있어",
+  ];
+  for (const d of drop) t = t.split(d).join(" ");
+  for (const s of ALL_SKILLS) t = t.split(s).join(" ");
+  t = t.replace(/[·,\-—:]+/g, " ").replace(/\s+/g, " ").trim();
+  return t.length >= 2 ? t : "";
+}
+
 /** 자연어 → 명령 문자열 변환. 매칭 실패 시 null. lastProjectId 갱신값도 함께 반환. */
 function nlToCommand(
   line: string,
   lastProjectId: string | null,
-  session: Session | null
+  session: Session | null,
+  projects: Project[]
 ): { command: string | null; lastProjectId: string | null } {
   const text = line.trim();
 
@@ -105,13 +120,12 @@ function nlToCommand(
     return { command: "로그아웃", lastProjectId };
   }
   // 로그인 안 된 상태에서 전화번호가 보이면 "로그인"이라는 말이 없어도 로그인 시도로 간주
-  // (터미널이 먼저 "누구세요?" 물어본 뒤라, 이름+번호만 답하는 게 자연스러움)
   if (text.includes("로그인") || (extractPhone(text) && (/이름|나는/.test(text) || !session))) {
     const loginCmd = tryParseLogin(text);
     if (loginCmd) return { command: loginCmd, lastProjectId };
   }
 
-  // 서비스 현황(접속/대기 인원·대화방·등록 유저). 인사보다 먼저 — "안녕 지금 몇명이야?"도 통계로.
+  // 서비스 현황(접속/대기 인원·대화방·등록 유저). 인사보다 먼저.
   if (["접속", "온라인", "몇 명", "몇명", "대기 인원", "대기인원", "현황판", "통계", "사람 수", "사람수", "인원"].some((k) => text.includes(k))) {
     return { command: "통계", lastProjectId };
   }
@@ -120,15 +134,13 @@ function nlToCommand(
     return { command: "인사", lastProjectId };
   }
 
-  const pidMatch = text.match(/(prj-\d{4}-\d-\d{3})/i);
+  const pidMatch = text.match(/(prj-[a-z0-9-]+)/i);
   const pid = pidMatch ? pidMatch[1].toLowerCase() : null;
 
   if (["몇개", "몇 개", "몇건", "몇 건", "개수", "갯수", "프로젝트 수", "총 몇"].some((k) => text.includes(k))) {
     return { command: "개수", lastProjectId };
   }
 
-  // "내 신청" / "내 프로젝트"는 특정 프로젝트를 안 가리키므로 아래 프로젝트별 현황/신청
-  // 분기보다 먼저 체크해야 함(안 그러면 "신청"/"현황" 키워드에 걸려 엉뚱한 프로젝트로 샘).
   if (["내 신청", "내가 신청", "신청한 거", "신청 목록", "내 신청현황"].some((k) => text.includes(k))) {
     return { command: "내신청", lastProjectId };
   }
@@ -136,7 +148,7 @@ function nlToCommand(
     return { command: "내프로젝트", lastProjectId };
   }
 
-  // PM이 자기 프로젝트 신청자를 수락/거절. "<이름> 수락해줘" / "<이름>님 거절" 형태.
+  // PM이 자기 프로젝트 신청자를 수락/거절.
   const acceptMatch = text.match(/([가-힣A-Za-z0-9]{2,10})\s*님?\s*(?:을|를)?\s*(수락|승인)/);
   if (acceptMatch) {
     return { command: `수락 ${acceptMatch[1]}`, lastProjectId };
@@ -146,16 +158,21 @@ function nlToCommand(
     return { command: `거절 ${rejectMatch[1]}`, lastProjectId };
   }
 
+  // 새 프로젝트 등록/구인 — 검색("프로젝트" 키워드)보다 먼저 잡아야 함.
+  if (REGISTER_KEYS.some((k) => text.includes(k))) {
+    return { command: "등록", lastProjectId };
+  }
+
   if (
     ["현황", "상태", "누구", "신청자"].some((k) => text.includes(k)) ||
     (pid && ["보여줘", "어때"].some((k) => text.includes(k)))
   ) {
-    const target = pickTarget(text, pid, lastProjectId);
+    const target = pickTarget(text, pid, lastProjectId, projects);
     if (target) return { command: `방 ${target}`, lastProjectId: target };
   }
 
   if (["신청", "지원", "참여", "들어가", "하고싶", "관심있"].some((k) => text.includes(k))) {
-    const target = pickTarget(text, pid, lastProjectId);
+    const target = pickTarget(text, pid, lastProjectId, projects);
     if (target) {
       const nameMatch = text.match(/(?:내\s*이름은|나는)\s*([가-힣A-Za-z0-9]+)/);
       const name = nameMatch ? nameMatch[1] : session?.name ?? "나";
@@ -167,8 +184,7 @@ function nlToCommand(
     return { command: `방 ${pid}`, lastProjectId: pid };
   }
 
-  // 스킬 추가/삭제는 전체 교체(스킬 <a,b,c>)보다 먼저 체크 — "마케팅 스킬 추가해줘"에도
-  // "스킬"이 들어있어서 순서가 바뀌면 교체 명령으로 잘못 갈 수 있음.
+  // 스킬 추가/삭제는 전체 교체보다 먼저.
   if (text.includes("스킬") && ["추가", "넣어", "넣고", "더해"].some((k) => text.includes(k))) {
     const found = ALL_SKILLS.filter((s) => text.includes(s));
     if (found.length) return { command: `스킬추가 ${found.join(",")}`, lastProjectId };
@@ -202,11 +218,12 @@ function nlToCommand(
   return { command: null, lastProjectId };
 }
 
-/** AI가 준 구조화된 의도 → 실제 명령 문자열. 프로젝트 매칭은 여기 결정적 코드가 담당. */
+/** AI가 준 구조화된 의도 → 실제 명령 문자열. */
 function aiToCommand(
   ai: AiResult,
   lastProjectId: string | null,
-  session: Session | null
+  session: Session | null,
+  projects: Project[]
 ): { command: string | null; lastProjectId: string | null } {
   const kw = ai.keywords.join(" ").trim();
   switch (ai.intent) {
@@ -224,6 +241,8 @@ function aiToCommand(
       return { command: "로그아웃", lastProjectId };
     case "help":
       return { command: "도움말", lastProjectId };
+    case "register":
+      return { command: "등록", lastProjectId };
     case "skill_set":
       return ai.skills.length ? { command: `스킬 ${ai.skills.join(",")}`, lastProjectId } : { command: null, lastProjectId };
     case "skill_add":
@@ -231,11 +250,11 @@ function aiToCommand(
     case "skill_remove":
       return ai.skills.length ? { command: `스킬삭제 ${ai.skills.join(",")}`, lastProjectId } : { command: null, lastProjectId };
     case "status": {
-      const target = pickTarget(kw, null, lastProjectId);
+      const target = pickTarget(kw, null, lastProjectId, projects);
       return target ? { command: `방 ${target}`, lastProjectId: target } : { command: null, lastProjectId };
     }
     case "apply": {
-      const target = pickTarget(kw, null, lastProjectId);
+      const target = pickTarget(kw, null, lastProjectId, projects);
       if (!target) return { command: null, lastProjectId };
       const name = session?.name ?? "나";
       return { command: `신청 ${target} ${name}`, lastProjectId: target };
@@ -284,21 +303,27 @@ export async function processCommand(rawLine: string, ctx: CommandContext): Prom
   const line = rawLine.trim();
   if (!line) return { output: "", lastProjectId: ctx.lastProjectId };
 
+  // 프로젝트 카탈로그(DB)를 요청 시작 시 1회 로드해 파서/핸들러가 공유.
+  const projects = await fetchProjects();
+  const byId = new Map(projects.map((p) => [p.id, p]));
+  const getP = (id: string): Project | undefined => byId.get(id.toLowerCase());
+  const titleOf = (id: string): string => getP(id)?.title ?? id;
+
   let parts = line.split(/\s+/);
   let cmd = parts[0];
   let lastProjectId = ctx.lastProjectId;
 
   if (!KNOWN_CMDS.has(cmd)) {
-    const converted = nlToCommand(line, ctx.lastProjectId, ctx.session);
+    const converted = nlToCommand(line, ctx.lastProjectId, ctx.session, projects);
     lastProjectId = converted.lastProjectId;
     if (converted.command) {
       parts = converted.command.split(/\s+/);
       cmd = parts[0];
     } else {
-      // 규칙 파서가 못 잡음 → AI 폴백(키 없으면 null). 운영 중 제각각인 표현 대응.
+      // 규칙 파서가 못 잡음 → AI 폴백(키 없으면 null).
       const ai = await interpret(line);
       if (ai) {
-        const aiCmd = aiToCommand(ai, lastProjectId, ctx.session);
+        const aiCmd = aiToCommand(ai, lastProjectId, ctx.session, projects);
         lastProjectId = aiCmd.lastProjectId;
         if (aiCmd.command) {
           parts = aiCmd.command.split(/\s+/);
@@ -312,7 +337,7 @@ export async function processCommand(rawLine: string, ctx: CommandContext): Prom
 
   try {
     if (cmd === "도움말" || cmd === "help") {
-      out.push('사용법: 프로젝트명을 그대로 말하면 됨. 예) "다크모드 프로젝트 찾아줘" / "거기 신청할래" / "현황 어때?" / "내 신청 보여줘" / "내 프로젝트에 누가 신청했어?" / "<이름> 수락해줘"(PM 전용) / "마케팅 스킬 추가해줘" / "기획 스킬 빼줘" / "지금 몇 명 접속했어?"(현황) / 스킬 <a,b,c>(전체 교체) / 이메일 <주소>(등록·변경) / 로그인 <이름> <전화번호> <이메일>');
+      out.push('사용법: 프로젝트명을 그대로 말하면 됨. 예) "다크모드 프로젝트 찾아줘" / "거기 신청할래" / "현황 어때?" / "내 신청 보여줘" / "내 프로젝트에 누가 신청했어?" / "<이름> 수락해줘"(PM 전용) / "프로젝트 등록할래"(새 프로젝트 구인) / "마케팅 스킬 추가해줘" / "지금 몇 명 접속했어?"(현황) / 스킬 <a,b,c>(전체 교체) / 이메일 <주소>(등록·변경) / 로그인 <이름> <전화번호> <이메일>');
     } else if (cmd === "로그인") {
       const name = parts[1];
       const phone = parts[2] ? normalizePhone(parts[2]) : null;
@@ -360,6 +385,43 @@ export async function processCommand(rawLine: string, ctx: CommandContext): Prom
           out.push(`이메일 등록됨: ${addr} — 이제 다시 연락할 수 있어. 고마워!`);
         }
       }
+    } else if (cmd === "등록") {
+      if (!ctx.session) {
+        out.push(`프로젝트를 등록하려면 먼저 로그인해야 해. ${LOGIN_HELP}`);
+      } else {
+        // 스킬은 결정적으로 스캔, 제목/설명은 AI(가능하면)로 추출·없으면 휴리스틱.
+        const scanned = ALL_SKILLS.filter((s) => line.includes(s));
+        let title = "";
+        let summary = "";
+        const ai = await interpret(line);
+        if (ai && ai.intent === "register") {
+          title = (ai.title ?? "").trim();
+          summary = (ai.summary ?? "").trim();
+          for (const s of ai.skills) if (!scanned.includes(s)) scanned.push(s);
+        }
+        if (!title) title = heuristicTitle(line);
+        if (!title) {
+          out.push('프로젝트 제목을 못 읽었어. 제목을 넣어서 다시 말해줘 — 예) "AI 사내 상담봇 프로젝트 등록할래. 백엔드·AI/ML 필요, 사내 문의 자동응답이야"');
+        } else {
+          const project = await createProject({
+            title,
+            summary,
+            required_skills: scanned,
+            pmName: ctx.session.name,
+            pmPhone: ctx.session.phone,
+          });
+          // PM 소유권 매핑(내프로젝트/수락/거절에서 실명 대조에 사용)
+          const { error: mapErr } = await supabase
+            .from("project_pm_map")
+            .upsert({ project_id: project.id, pm_full_name: ctx.session.name }, { onConflict: "project_id" });
+          if (mapErr) throw new Error(mapErr.message);
+          out.push(`『${project.title}』 등록 완료! 이제 네가 이 프로젝트의 PM이야.`);
+          out.push(`필요 스킬: ${scanned.join(", ") || "(미지정 — \"스킬\"로 나중에 추가 가능)"}`);
+          if (summary) out.push(`소개: ${summary}`);
+          out.push(`이제 다른 사람들이 검색·신청할 수 있어. "내 프로젝트"로 신청자를 관리해.`);
+          lastProjectId = project.id;
+        }
+      }
     } else if (cmd === "스킬" && parts.length >= 2) {
       if (!ctx.session) {
         out.push(`스킬을 저장하려면 먼저 로그인해야 해. ${LOGIN_HELP}`);
@@ -400,13 +462,13 @@ export async function processCommand(rawLine: string, ctx: CommandContext): Prom
         }
       }
     } else if (cmd === "개수") {
-      out.push(`등록 프로젝트: 총 ${listProjects().length}건`);
+      out.push(`등록 프로젝트: 총 ${projects.length}건`);
     } else if (cmd === "매칭") {
       const keywordTokens = parts.slice(1);
       const user = ctx.session ? await getUserByPhone(ctx.session.phone) : null;
       const skills = user?.skills ?? [];
       const hasHistory = (user?.completed_projects.length ?? 0) > 0;
-      const results = listProjects()
+      const results = projects
         .filter((p) => {
           const haystack = `${p.title} ${p.required_skills.join(" ")}`;
           return keywordTokens.every((t) => haystack.includes(t));
@@ -423,31 +485,32 @@ export async function processCommand(rawLine: string, ctx: CommandContext): Prom
         out.push(`       요구:${p.required_skills.join(",") || "-"}  일치:${overlap.join(",") || "없음"}`);
       }
       if (results.length > 15) out.push(`  ...외 ${results.length - 15}건 (검색어로 좁혀봐)`);
+      if (!results.length && !projects.length) out.push(`  아직 등록된 프로젝트가 없어. "프로젝트 등록할래"로 첫 프로젝트를 올려봐.`);
       if (results.length === 1) lastProjectId = results[0].p.id;
     } else if (cmd === "방" && parts.length >= 2) {
       const pid = parts[1];
-      const project = getProject(pid);
+      const project = getP(pid);
       if (!project) {
         out.push(`알 수 없는 프로젝트: ${pid}`);
       } else {
-        const rows = await readApps(pid);
+        const rows = await readApps(project.id);
         out.push(...roomLines(rows, project.title));
-        lastProjectId = pid;
+        lastProjectId = project.id;
       }
     } else if (cmd === "신청" && parts.length >= 3) {
       const pid = parts[1];
       const name = parts[2];
       const role = parts[3] ?? "참여자";
-      const project = getProject(pid);
+      const project = getP(pid);
       if (!project) {
         out.push(`알 수 없는 프로젝트: ${pid}`);
       } else {
-        const existing = (await readApps(pid)).find((r) => r.applicant === name);
+        const existing = (await readApps(project.id)).find((r) => r.applicant === name);
         if (existing && existing.status !== "rejected") {
           out.push(`『${project.title}』에 이미 신청했어 (상태: ${STATUS_LABEL[existing.status]}).`);
         } else {
           const { error } = await supabase.from("applications").insert({
-            project_id: pid,
+            project_id: project.id,
             applicant: name,
             role,
             status: "pending",
@@ -455,7 +518,7 @@ export async function processCommand(rawLine: string, ctx: CommandContext): Prom
           if (error) throw new Error(error.message);
           out.push(`『${project.title}』에 ${name}(${role}) 신청 등록됨. PM 수락을 기다려줘.`);
         }
-        lastProjectId = pid;
+        lastProjectId = project.id;
       }
     } else if (cmd === "내신청") {
       if (!ctx.session) {
@@ -473,7 +536,7 @@ export async function processCommand(rawLine: string, ctx: CommandContext): Prom
         } else {
           out.push(`내 신청 현황 (${rows.length}건):`);
           for (const r of rows) {
-            out.push(`  ${projectTitle(r.project_id).padEnd(20, " ")} [${STATUS_LABEL[r.status]}]`);
+            out.push(`  ${titleOf(r.project_id).padEnd(20, " ")} [${STATUS_LABEL[r.status]}]`);
           }
         }
       }
@@ -483,14 +546,14 @@ export async function processCommand(rawLine: string, ctx: CommandContext): Prom
       } else {
         const ownedIds = await getOwnedProjectIds(ctx.session.name);
         if (!ownedIds.length) {
-          out.push("PM으로 등록된 프로젝트 없음.");
+          out.push('PM으로 등록된 프로젝트 없음. "프로젝트 등록할래"로 새로 열 수 있어.');
         } else {
           let total = 0;
           for (const pid of ownedIds) {
             const rows = await readApps(pid);
             if (!rows.length) continue;
             total += rows.length;
-            out.push(`『${projectTitle(pid)}』`);
+            out.push(`『${titleOf(pid)}』`);
             for (const r of rows) {
               out.push(`  ${r.applicant.padEnd(8, " ")} ${r.role.padEnd(6, " ")} [${STATUS_LABEL[r.status]}]`);
             }
@@ -503,14 +566,14 @@ export async function processCommand(rawLine: string, ctx: CommandContext): Prom
       if (!ctx.session) {
         out.push(`아직 로그인 안 했어. ${LOGIN_HELP}`);
       } else {
-        const explicitPid = parts.length >= 3 && getProject(parts[1]) ? parts[1] : null;
+        const explicitPid = parts.length >= 3 && getP(parts[1]) ? getP(parts[1])!.id : null;
         const name = explicitPid ? parts[2] : parts[1];
         const ownedIds = await getOwnedProjectIds(ctx.session.name);
 
         if (!ownedIds.length) {
           out.push("PM으로 등록된 프로젝트가 없어서 처리할 수 없어.");
         } else if (explicitPid && !ownedIds.includes(explicitPid)) {
-          out.push(`『${projectTitle(explicitPid)}』의 PM이 아니라서 처리할 수 없어.`);
+          out.push(`『${titleOf(explicitPid)}』의 PM이 아니라서 처리할 수 없어.`);
         } else {
           const candidateIds = explicitPid ? [explicitPid] : ownedIds;
           const matches: { pid: string; row: ApplicationRow }[] = [];
@@ -525,7 +588,7 @@ export async function processCommand(rawLine: string, ctx: CommandContext): Prom
           } else if (matches.length > 1) {
             out.push(
               `"${name}"이(가) 여러 프로젝트에 대기중이야. 프로젝트를 지정해줘: ${matches
-                .map((m) => projectTitle(m.pid))
+                .map((m) => titleOf(m.pid))
                 .join(", ")}`
             );
           } else {
@@ -533,7 +596,7 @@ export async function processCommand(rawLine: string, ctx: CommandContext): Prom
             const status = cmd === "수락" ? "accepted" : "rejected";
             const { error } = await supabase.from("applications").update({ status }).eq("id", row.id);
             if (error) throw new Error(error.message);
-            out.push(`『${projectTitle(mpid)}』 ${name} 신청 ${cmd === "수락" ? "수락" : "거절"} 처리 완료.`);
+            out.push(`『${titleOf(mpid)}』 ${name} 신청 ${cmd === "수락" ? "수락" : "거절"} 처리 완료.`);
           }
         }
       }
@@ -544,10 +607,10 @@ export async function processCommand(rawLine: string, ctx: CommandContext): Prom
       ]);
       const inChat = activeRooms * 2; // 방당 2명
       out.push(`지금 매칭 대기 ${waiting}명 · 대화 중인 방 ${activeRooms}개(참여 ${inChat}명)`);
-      out.push(`등록 유저 누적 ${users ?? 0}명 · 프로젝트 ${listProjects().length}건`);
+      out.push(`등록 유저 누적 ${users ?? 0}명 · 프로젝트 ${projects.length}건`);
       out.push(`(실시간 접속 정밀 추적은 안 해 — 매칭 대기·대화 현황 기준)`);
     } else if (cmd === "인사") {
-      out.push(`안녕! 프로젝트 마켓이야. 편하게 말하면 돼 — 예) "AI 관련 프로젝트 찾아줘", "지금 몇 명 접속했어?", "내 신청 보여줘". 자세한 건 '도움말'.`);
+      out.push(`안녕! 프로젝트 마켓이야. 편하게 말하면 돼 — 예) "AI 관련 프로젝트 찾아줘", "프로젝트 등록할래", "지금 몇 명 접속했어?". 자세한 건 '도움말'.`);
     } else {
       out.push(`모르는 명령어: ${line}  ('도움말' 입력)`);
     }

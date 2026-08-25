@@ -1,5 +1,6 @@
 import { supabase, type ApplicationRow, type UserRow } from "@/lib/supabase";
-import { listProjects, type Project } from "@/lib/projects";
+import { fetchProjects } from "@/lib/projectsDb";
+import type { Project } from "@/lib/projects";
 
 export type ProjectApplications = {
   project: Project;
@@ -7,7 +8,7 @@ export type ProjectApplications = {
 };
 
 export async function getAdminApplications(): Promise<ProjectApplications[]> {
-  const projects = listProjects();
+  const projects = await fetchProjects();
   const { data, error } = await supabase
     .from("applications")
     .select("*")

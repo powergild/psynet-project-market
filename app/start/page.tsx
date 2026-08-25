@@ -1,10 +1,10 @@
 import Terminal from "@/components/Terminal";
-import { listProjects } from "@/lib/projects";
+import { fetchProjects } from "@/lib/projectsDb";
 
-const RECRUITING_STATUS = new Set(["기획", "예정", "개발"]);
+const RECRUITING_STATUS = new Set(["기획", "예정", "개발", "모집중"]);
 
-export default function StartPage() {
-  const recruitingCount = listProjects().filter((p) => RECRUITING_STATUS.has(p.status)).length;
+export default async function StartPage() {
+  const recruitingCount = (await fetchProjects()).filter((p) => RECRUITING_STATUS.has(p.status)).length;
   return (
     <main>
       <section className="hero">

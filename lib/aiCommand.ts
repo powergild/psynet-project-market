@@ -9,6 +9,7 @@ import { ALL_SKILLS } from "@/lib/projects";
 export type AiIntent =
   | "search" // 프로젝트 검색/매칭
   | "apply" // 신청/지원
+  | "register" // 새 프로젝트 등록/구인
   | "status" // 특정 프로젝트 현황
   | "count" // 프로젝트 개수
   | "stats" // 지금 접속/대기 인원, 대화방, 등록 유저 등 현황
@@ -26,6 +27,8 @@ export type AiResult = {
   intent: AiIntent;
   keywords: string[]; // 검색/매칭용 자유 키워드 (프로젝트명 조각 등)
   skills: string[]; // ALL_SKILLS 중 매칭된 것
+  title?: string; // register 전용 — 프로젝트 제목
+  summary?: string; // register 전용 — 한줄 소개
 };
 
 const SCHEMA = {
@@ -36,6 +39,7 @@ const SCHEMA = {
       enum: [
         "search",
         "apply",
+        "register",
         "status",
         "count",
         "stats",
@@ -52,6 +56,8 @@ const SCHEMA = {
     },
     keywords: { type: "array", items: { type: "string" } },
     skills: { type: "array", items: { type: "string", enum: ALL_SKILLS } },
+    title: { type: "string" },
+    summary: { type: "string" },
   },
   required: ["intent", "keywords", "skills"],
   additionalProperties: false,
@@ -70,6 +76,7 @@ const SYSTEM = `너는 사내 프로젝트 마켓 터미널의 명령 해석기�
 의도(intent):
 - search: 프로젝트를 찾거나 추천받고 싶음 (예: "AI 관련 뭐 있어?", "디자인 쪽 할만한 거")
 - apply: 특정 프로젝트에 신청/지원하고 싶음 (예: "거기 신청할래", "이거 참여하고 싶어")
+- register: 자기가 새 프로젝트를 열고 사람을 구하고 싶음 (예: "프로젝트 등록할래", "AI 챗봇 만들 사람 구해요", "새 프로젝트 올리고 싶어")
 - status: 특정 프로젝트의 신청 현황/상태를 보고 싶음
 - count: 전체 프로젝트가 몇 개인지
 - stats: 지금 접속/대기 인원, 대화 중인 방, 등록된 유저 수 등 서비스 현황 (예: "지금 몇 명 접속했어?", "대기 인원 얼마나 돼?", "사람 몇 명 있어?", "현황판 보여줘")
@@ -85,6 +92,8 @@ const SYSTEM = `너는 사내 프로젝트 마켓 터미널의 명령 해석기�
 
 keywords: 검색이나 프로젝트 지목에 쓸 자유 키워드(프로젝트명 조각, 주제어). 없으면 빈 배열.
 skills: 문장에 등장한, 아래 목록에 있는 스킬만. 없으면 빈 배열.
+title: intent가 register일 때만 — 등록할 프로젝트의 간결한 제목(예: "AI 사내 상담봇"). 문장에서 군더더기·구인 표현을 빼고 핵심 명사구로. 그 외 intent면 빈 문자열.
+summary: intent가 register일 때만 — 프로젝트를 한 줄로 설명. 없으면 빈 문자열.
 사용 가능한 스킬: ${ALL_SKILLS.join(", ")}`;
 
 /** 자유 문장 → 구조화된 의도. 실패/키없음 시 null. */
@@ -106,6 +115,8 @@ export async function interpret(line: string): Promise<AiResult | null> {
       intent: parsed.intent,
       keywords: Array.isArray(parsed.keywords) ? parsed.keywords.filter(Boolean) : [],
       skills: Array.isArray(parsed.skills) ? parsed.skills.filter((s) => ALL_SKILLS.includes(s as never)) : [],
+      title: typeof parsed.title === "string" ? parsed.title : "",
+      summary: typeof parsed.summary === "string" ? parsed.summary : "",
     };
   } catch {
     return null; // API 오류 시 조용히 규칙 파서로 폴백
