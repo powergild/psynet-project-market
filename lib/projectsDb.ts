@@ -78,6 +78,18 @@ export async function createProject(input: CreateProjectInput): Promise<Project>
   return rowToProject(data as ProjectRow);
 }
 
+/** 프로젝트 제목 변경. */
+export async function updateProjectTitle(id: string, title: string): Promise<void> {
+  const { error } = await supabase.from("projects").update({ title: title.trim() }).eq("id", id.toLowerCase());
+  if (error) throw new Error(`제목 변경 실패: ${error.message}`);
+}
+
+/** 프로젝트 상태 변경. */
+export async function updateProjectStatus(id: string, status: string): Promise<void> {
+  const { error } = await supabase.from("projects").update({ status }).eq("id", id.toLowerCase());
+  if (error) throw new Error(`상태 변경 실패: ${error.message}`);
+}
+
 /** 소유자(등록자) phone. 없으면 null(레거시/미상). */
 export async function getProjectOwnerPhone(id: string): Promise<string | null> {
   const { data, error } = await supabase

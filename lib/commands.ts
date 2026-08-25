@@ -11,7 +11,7 @@
 
 import { supabase, type ApplicationRow } from "@/lib/supabase";
 import { ALL_SKILLS, gradeFor, type Project } from "@/lib/projects";
-import { fetchProjects, createProject, getProjectOwnerPhone, deleteProjectCascade } from "@/lib/projectsDb";
+import { fetchProjects, createProject, getProjectOwnerPhone, deleteProjectCascade, updateProjectTitle, updateProjectStatus } from "@/lib/projectsDb";
 import { extractEmail, extractPhone, findOrCreateUser, getUserByPhone, normalizePhone, type Session } from "@/lib/auth";
 import { getOwnedProjectIds } from "@/lib/pmMap";
 import { interpret, type AiResult } from "@/lib/aiCommand";
@@ -21,7 +21,22 @@ import { getConnectStats } from "@/lib/connect";
 export type Pending =
   | { kind: "register"; step: "title" | "skills" | "summary" | "confirm"; draft: { title?: string; skills?: string[]; summary?: string } }
   | { kind: "delete"; projectId: string; title: string }
+  | { kind: "rename"; projectId: string; oldTitle: string }
+  | { kind: "status"; projectId: string; title: string }
   | null;
+
+// 프로젝트 상태 값(사용자 선택지). recruiting 필터는 "모집중"만 구인으로 침(page/recruiting).
+const STATUS_OPTIONS = ["모집중", "마감", "진행중", "완료", "보류"];
+function pickStatus(t: string): string | null {
+  if (/마감|모집\s*완료|모집완료|그만\s*뽑|다\s*구했|충원\s*완료/.test(t)) return "마감";
+  if (/완료|끝났|끝냈|종료|런칭|출시|배포했/.test(t)) return "완료";
+  if (/보류|중단|홀드|멈춰|일시\s*정지|잠정/.test(t)) return "보류";
+  if (/진행중|진행\s*중|개발\s*중|한창|착수|시작했/.test(t)) return "진행중";
+  if (/모집중|다시\s*모집|재개|모집\s*재개|사람\s*더|더\s*구|다시\s*열|오픈/.test(t)) return "모집중";
+  // 선택지 이름 직접 언급
+  for (const s of STATUS_OPTIONS) if (t.includes(s)) return s;
+  return null;
+}
 
 export type CommandContext = {
   session: Session | null;
@@ -40,7 +55,7 @@ export type CommandResult = {
 
 const KNOWN_CMDS = new Set([
   "도움말", "help", "프로필", "스킬", "스킬추가", "스킬삭제", "매칭", "방", "신청", "개수", "로그인", "로그아웃",
-  "내신청", "내프로젝트", "수락", "거절", "등록", "삭제",
+  "내신청", "내프로젝트", "수락", "거절", "등록", "삭제", "제목수정", "상태변경",
 ]);
 
 const isCancel = (t: string) => ["취소", "그만", "관둬", "됐어", "안할래", "안 할래"].some((k) => t.includes(k));
@@ -161,6 +176,20 @@ function nlToCommand(
     return { command: `거절 ${rejectMatch[1]}`, lastProjectId };
   }
 
+  // 제목 수정 (본인 프로젝트)
+  if (text.includes("제목") && ["수정", "바꿔", "변경", "고쳐", "바꾸", "바꿀", "바꾸고"].some((k) => text.includes(k))) {
+    return { command: "제목수정", lastProjectId };
+  }
+  // 상태 변경 — 검색 오인 방지 위해 변경 동사/조사와 함께일 때만.
+  const statusChangeHit =
+    text.includes("상태") ||
+    /마감|모집\s*완료|모집완료/.test(text) ||
+    /(완료|보류|진행중|모집중)\s*(로|으로|만들|바꿔|변경)/.test(text) ||
+    /(마감|완료|보류|재개|다시\s*모집)\s*(할래|해줘|하자|하고|시켜|됐)/.test(text);
+  if (!text.includes("스킬") && statusChangeHit) {
+    return { command: "상태변경", lastProjectId };
+  }
+
   // 프로젝트 삭제 — "스킬 삭제"와 구분 위해 "스킬" 없을 때만. 등록보다 먼저(등록 취소류 오인 방지).
   if (!text.includes("스킬") && ["삭제", "지워", "없애", "내려"].some((k) => text.includes(k))) {
     return { command: "삭제", lastProjectId };
@@ -253,6 +282,10 @@ function aiToCommand(
       return { command: "등록", lastProjectId };
     case "delete":
       return { command: "삭제", lastProjectId };
+    case "rename":
+      return { command: "제목수정", lastProjectId };
+    case "status_change":
+      return { command: "상태변경", lastProjectId };
     case "skill_set":
       return ai.skills.length ? { command: `스킬 ${ai.skills.join(",")}`, lastProjectId } : { command: null, lastProjectId };
     case "skill_add":
@@ -401,6 +434,32 @@ export async function processCommand(rawLine: string, ctx: CommandContext): Prom
       }
       return { output: `『${pending.title}』 삭제할까? "응" 또는 "아니".`, lastProjectId, pending };
     }
+    if (pending.kind === "rename") {
+      const nt = line.trim();
+      if (nt.length < 2) {
+        return { output: '새 제목이 너무 짧아. 바꿀 제목을 한 줄로 알려줘. (취소하려면 "취소")', lastProjectId, pending };
+      }
+      try {
+        await updateProjectTitle(pending.projectId, nt);
+        return { output: `제목을 『${pending.oldTitle}』 → 『${nt}』(으)로 바꿨어.`, lastProjectId, pending: null };
+      } catch (e) {
+        return { output: `[오류] ${e instanceof Error ? e.message : String(e)}`, lastProjectId, pending: null };
+      }
+    }
+    if (pending.kind === "status") {
+      const st = pickStatus(line);
+      if (!st) {
+        return { output: `어떤 상태로 바꿀까? ${STATUS_OPTIONS.join(" / ")} 중에서 말해줘.`, lastProjectId, pending };
+      }
+      try {
+        await updateProjectStatus(pending.projectId, st);
+        const extra =
+          st === "모집중" ? " 다시 구인 목록에 떠." : ["마감", "완료", "보류"].includes(st) ? " 구인 목록에서는 내려가." : "";
+        return { output: `『${pending.title}』 상태를 "${st}"(으)로 바꿨어.${extra}`, lastProjectId, pending: null };
+      } catch (e) {
+        return { output: `[오류] ${e instanceof Error ? e.message : String(e)}`, lastProjectId, pending: null };
+      }
+    }
   }
 
   let parts = line.split(/\s+/);
@@ -430,7 +489,7 @@ export async function processCommand(rawLine: string, ctx: CommandContext): Prom
 
   try {
     if (cmd === "도움말" || cmd === "help") {
-      out.push('사용법: 프로젝트명을 그대로 말하면 됨. 예) "다크모드 프로젝트 찾아줘" / "거기 신청할래" / "현황 어때?" / "내 신청 보여줘" / "내 프로젝트에 누가 신청했어?" / "<이름> 수락해줘"(PM 전용) / "프로젝트 등록할래"(새 프로젝트 구인) / "마케팅 스킬 추가해줘" / "지금 몇 명 접속했어?"(현황) / 스킬 <a,b,c>(전체 교체) / 이메일 <주소>(등록·변경) / 로그인 <이름> <전화번호> <이메일>');
+      out.push('사용법: 프로젝트명을 그대로 말하면 됨. 예) "다크모드 프로젝트 찾아줘" / "거기 신청할래" / "현황 어때?" / "내 신청 보여줘" / "내 프로젝트에 누가 신청했어?" / "<이름> 수락해줘"(PM 전용) / "프로젝트 등록할래"(새 프로젝트 구인) / "이거 제목 바꿔줘" / "이거 마감해줘"(상태 변경) / "이거 삭제해줘" / "마케팅 스킬 추가해줘" / "지금 몇 명 접속했어?"(현황) / 스킬 <a,b,c>(전체 교체) / 이메일 <주소>(등록·변경) / 로그인 <이름> <전화번호> <이메일>');
     } else if (cmd === "로그인") {
       const name = parts[1];
       const phone = parts[2] ? normalizePhone(parts[2]) : null;
@@ -512,6 +571,70 @@ export async function processCommand(rawLine: string, ctx: CommandContext): Prom
                 lastProjectId,
                 pending: { kind: "delete", projectId: proj.id, title: proj.title },
               };
+            }
+          }
+        }
+      }
+    } else if (cmd === "제목수정") {
+      if (!ctx.session) {
+        out.push(`프로젝트를 수정하려면 먼저 로그인해야 해. ${LOGIN_HELP}`);
+      } else {
+        const explicitId = parts.length >= 2 && getP(parts[1]) ? getP(parts[1])!.id : null;
+        const { id: nameId, score } = resolveProjectIdScored(line, projects);
+        const targetId = explicitId ?? (score >= 2 ? nameId : null) ?? lastProjectId;
+        if (!targetId) {
+          out.push('어떤 프로젝트 제목을 바꿀까? 프로젝트 이름을 말해줘.');
+        } else {
+          const proj = getP(targetId);
+          if (!proj) {
+            out.push(`알 수 없는 프로젝트야: ${targetId}`);
+          } else {
+            const owner = await getProjectOwnerPhone(proj.id);
+            if (owner && owner !== ctx.session.phone) {
+              out.push(`『${proj.title}』은(는) 네가 등록한 게 아니라 수정할 수 없어.`);
+            } else {
+              return {
+                output: `『${proj.title}』의 새 제목을 알려줘. (취소하려면 "취소")`,
+                lastProjectId,
+                pending: { kind: "rename", projectId: proj.id, oldTitle: proj.title },
+              };
+            }
+          }
+        }
+      }
+    } else if (cmd === "상태변경") {
+      if (!ctx.session) {
+        out.push(`프로젝트 상태를 바꾸려면 먼저 로그인해야 해. ${LOGIN_HELP}`);
+      } else {
+        const explicitId = parts.length >= 2 && getP(parts[1]) ? getP(parts[1])!.id : null;
+        const { id: nameId, score } = resolveProjectIdScored(line, projects);
+        const targetId = explicitId ?? (score >= 2 ? nameId : null) ?? lastProjectId;
+        if (!targetId) {
+          out.push('어떤 프로젝트 상태를 바꿀까? 프로젝트 이름을 말해줘.');
+        } else {
+          const proj = getP(targetId);
+          if (!proj) {
+            out.push(`알 수 없는 프로젝트야: ${targetId}`);
+          } else {
+            const owner = await getProjectOwnerPhone(proj.id);
+            if (owner && owner !== ctx.session.phone) {
+              out.push(`『${proj.title}』은(는) 네가 등록한 게 아니라 바꿀 수 없어.`);
+            } else {
+              // 한 문장에 상태값이 이미 있으면 바로 확정, 없으면 물어봄.
+              const inline = pickStatus(line);
+              if (inline) {
+                await updateProjectStatus(proj.id, inline);
+                const extra =
+                  inline === "모집중" ? " 다시 구인 목록에 떠." : ["마감", "완료", "보류"].includes(inline) ? " 구인 목록에서는 내려가." : "";
+                out.push(`『${proj.title}』 상태를 "${inline}"(으)로 바꿨어.${extra}`);
+                lastProjectId = proj.id;
+              } else {
+                return {
+                  output: `『${proj.title}』을(를) 어떤 상태로 바꿀까? ${STATUS_OPTIONS.join(" / ")} (현재: ${proj.status})`,
+                  lastProjectId,
+                  pending: { kind: "status", projectId: proj.id, title: proj.title },
+                };
+              }
             }
           }
         }
