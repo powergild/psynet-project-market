@@ -561,7 +561,7 @@ export async function processCommand(rawLine: string, ctx: CommandContext): Prom
       } else {
         const explicitId = parts.length >= 2 && getP(parts[1]) ? getP(parts[1])!.id : null;
         const { id: nameId, score } = resolveProjectIdScored(line, projects);
-        const targetId = explicitId ?? (score >= 2 ? nameId : null) ?? lastProjectId;
+        const targetId = explicitId ?? (score >= 1 ? nameId : null) ?? lastProjectId;
         if (!targetId) {
           out.push('어떤 프로젝트를 삭제할까? 프로젝트 이름을 말해줘. 예) "테스트봇 삭제해줘"');
         } else {
@@ -588,7 +588,7 @@ export async function processCommand(rawLine: string, ctx: CommandContext): Prom
       } else {
         const explicitId = parts.length >= 2 && getP(parts[1]) ? getP(parts[1])!.id : null;
         const { id: nameId, score } = resolveProjectIdScored(line, projects);
-        const targetId = explicitId ?? (score >= 2 ? nameId : null) ?? lastProjectId;
+        const targetId = explicitId ?? (score >= 1 ? nameId : null) ?? lastProjectId;
         if (!targetId) {
           out.push('어떤 프로젝트 제목을 바꿀까? 프로젝트 이름을 말해줘.');
         } else {
@@ -615,7 +615,7 @@ export async function processCommand(rawLine: string, ctx: CommandContext): Prom
       } else {
         const explicitId = parts.length >= 2 && getP(parts[1]) ? getP(parts[1])!.id : null;
         const { id: nameId, score } = resolveProjectIdScored(line, projects);
-        const targetId = explicitId ?? (score >= 2 ? nameId : null) ?? lastProjectId;
+        const targetId = explicitId ?? (score >= 1 ? nameId : null) ?? lastProjectId;
         if (!targetId) {
           out.push('어떤 프로젝트 상태를 바꿀까? 프로젝트 이름을 말해줘.');
         } else {
