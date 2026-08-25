@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { processCommand } from "@/lib/commands";
+import { processCommand, type Pending } from "@/lib/commands";
 import type { Session } from "@/lib/auth";
 
 export const runtime = "nodejs";
@@ -28,6 +28,7 @@ export async function POST(req: NextRequest) {
   const result = await processCommand(body.cmd, {
     session: parseSession(body),
     lastProjectId: typeof body.lastProjectId === "string" ? body.lastProjectId : null,
+    pending: (body.pending ?? null) as Pending,
   });
 
   return NextResponse.json(result);

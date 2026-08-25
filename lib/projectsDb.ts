@@ -77,3 +77,24 @@ export async function createProject(input: CreateProjectInput): Promise<Project>
   if (error) throw new Error(`프로젝트 생성 실패: ${error.message}`);
   return rowToProject(data as ProjectRow);
 }
+
+/** 소유자(등록자) phone. 없으면 null(레거시/미상). */
+export async function getProjectOwnerPhone(id: string): Promise<string | null> {
+  const { data, error } = await supabase
+    .from("projects")
+    .select("pm_phone")
+    .eq("id", id.toLowerCase())
+    .maybeSingle();
+  if (error || !data) return null;
+  return (data as { pm_phone: string | null }).pm_phone ?? null;
+}
+
+/** 프로젝트 + 연관 데이터(신청·참여자·PM매핑) 삭제. */
+export async function deleteProjectCascade(id: string): Promise<void> {
+  const pid = id.toLowerCase();
+  await supabase.from("applications").delete().eq("project_id", pid);
+  await supabase.from("project_participants").delete().eq("project_id", pid);
+  await supabase.from("project_pm_map").delete().eq("project_id", pid);
+  const { error } = await supabase.from("projects").delete().eq("id", pid);
+  if (error) throw new Error(`프로젝트 삭제 실패: ${error.message}`);
+}

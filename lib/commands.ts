@@ -11,15 +11,22 @@
 
 import { supabase, type ApplicationRow } from "@/lib/supabase";
 import { ALL_SKILLS, gradeFor, type Project } from "@/lib/projects";
-import { fetchProjects, createProject } from "@/lib/projectsDb";
+import { fetchProjects, createProject, getProjectOwnerPhone, deleteProjectCascade } from "@/lib/projectsDb";
 import { extractEmail, extractPhone, findOrCreateUser, getUserByPhone, normalizePhone, type Session } from "@/lib/auth";
 import { getOwnedProjectIds } from "@/lib/pmMap";
 import { interpret, type AiResult } from "@/lib/aiCommand";
 import { getConnectStats } from "@/lib/connect";
 
+// 여러 턴에 걸친 대화 상태(메모리). lastProjectId처럼 클라이언트가 들고 매 요청에 실어보낸다.
+export type Pending =
+  | { kind: "register"; step: "title" | "skills" | "summary" | "confirm"; draft: { title?: string; skills?: string[]; summary?: string } }
+  | { kind: "delete"; projectId: string; title: string }
+  | null;
+
 export type CommandContext = {
   session: Session | null;
   lastProjectId: string | null;
+  pending?: Pending;
 };
 
 export type CommandResult = {
@@ -27,12 +34,21 @@ export type CommandResult = {
   lastProjectId: string | null;
   /** undefined = 세션 변화 없음, null = 로그아웃, Session = 로그인/갱신 */
   session?: Session | null;
+  /** 진행 중인 대화 상태. null = 없음/초기화. */
+  pending?: Pending;
 };
 
 const KNOWN_CMDS = new Set([
   "도움말", "help", "프로필", "스킬", "스킬추가", "스킬삭제", "매칭", "방", "신청", "개수", "로그인", "로그아웃",
-  "내신청", "내프로젝트", "수락", "거절", "등록",
+  "내신청", "내프로젝트", "수락", "거절", "등록", "삭제",
 ]);
+
+const isCancel = (t: string) => ["취소", "그만", "관둬", "됐어", "안할래", "안 할래"].some((k) => t.includes(k));
+const YES = ["응", "네", "넵", "ㅇㅇ", "어", "그래", "맞아", "좋아", "해줘", "해", "확인", "yes", "ok", "오케이", "등록", "삭제", "지워"];
+const NO = ["아니", "아냐", "아뇨", "노", "싫어", "안해", "no"];
+const isYes = (t: string) => { const s = t.trim().toLowerCase(); return YES.some((k) => s === k.toLowerCase() || s.includes(k.toLowerCase())); };
+const isNo = (t: string) => { const s = t.trim().toLowerCase(); return NO.some((k) => s === k.toLowerCase() || s.includes(k.toLowerCase())); };
+const skipWord = (t: string) => ["없음", "없어", "없다", "건너뛰", "스킵", "패스", "몰라", "생략"].some((k) => t.includes(k));
 
 function resolveProjectIdScored(text: string, projects: Project[]): { id: string | null; score: number } {
   let bestId: string | null = null;
@@ -94,19 +110,6 @@ const REGISTER_KEYS = [
   "만들 사람", "만들사람", "새 프로젝트", "새프로젝트", "프로젝트 만들", "프로젝트 낼", "프로젝트 열", "프로젝트 개설",
 ];
 
-/** AI 없이 제목만 대충 뽑는 폴백 — 등록/구인 표현과 스킬어를 제거한 나머지. */
-function heuristicTitle(text: string): string {
-  let t = ` ${text} `;
-  const drop = [
-    "프로젝트를", "프로젝트", "등록할래", "등록할게", "등록해줘", "등록하고", "등록", "올릴래", "올릴게", "올리고 싶어", "올리고",
-    "구인해줘", "구인", "모집해줘", "모집", "사람 구해요", "사람 구해", "사람구해", "만들 사람", "만들사람", "새로", "새 ", "좀", "해줘", "하고 싶어", "하고싶어", "할래", "할게", "필요해", "필요", "구하고 있어", "구하고", "있어",
-  ];
-  for (const d of drop) t = t.split(d).join(" ");
-  for (const s of ALL_SKILLS) t = t.split(s).join(" ");
-  t = t.replace(/[·,\-—:]+/g, " ").replace(/\s+/g, " ").trim();
-  return t.length >= 2 ? t : "";
-}
-
 /** 자연어 → 명령 문자열 변환. 매칭 실패 시 null. lastProjectId 갱신값도 함께 반환. */
 function nlToCommand(
   line: string,
@@ -156,6 +159,11 @@ function nlToCommand(
   const rejectMatch = text.match(/([가-힣A-Za-z0-9]{2,10})\s*님?\s*(?:을|를)?\s*(거절|반려)/);
   if (rejectMatch) {
     return { command: `거절 ${rejectMatch[1]}`, lastProjectId };
+  }
+
+  // 프로젝트 삭제 — "스킬 삭제"와 구분 위해 "스킬" 없을 때만. 등록보다 먼저(등록 취소류 오인 방지).
+  if (!text.includes("스킬") && ["삭제", "지워", "없애", "내려"].some((k) => text.includes(k))) {
+    return { command: "삭제", lastProjectId };
   }
 
   // 새 프로젝트 등록/구인 — 검색("프로젝트" 키워드)보다 먼저 잡아야 함.
@@ -243,6 +251,8 @@ function aiToCommand(
       return { command: "도움말", lastProjectId };
     case "register":
       return { command: "등록", lastProjectId };
+    case "delete":
+      return { command: "삭제", lastProjectId };
     case "skill_set":
       return ai.skills.length ? { command: `스킬 ${ai.skills.join(",")}`, lastProjectId } : { command: null, lastProjectId };
     case "skill_add":
@@ -309,9 +319,92 @@ export async function processCommand(rawLine: string, ctx: CommandContext): Prom
   const getP = (id: string): Project | undefined => byId.get(id.toLowerCase());
   const titleOf = (id: string): string => getP(id)?.title ?? id;
 
+  let lastProjectId = ctx.lastProjectId;
+
+  // ── 대화형 진행 상태(pending) 우선 처리 ── 여러 턴 맥락을 여기서 소비.
+  const pending = ctx.pending ?? null;
+  if (pending) {
+    if (isCancel(line)) {
+      return { output: "알겠어, 취소했어.", lastProjectId, pending: null };
+    }
+    if (pending.kind === "register") {
+      const d = pending.draft;
+      if (pending.step === "title") {
+        const title = line.trim();
+        if (title.length < 2) {
+          return { output: "제목이 너무 짧아. 프로젝트 제목을 한 줄로 알려줘. (취소하려면 \"취소\")", lastProjectId, pending };
+        }
+        return {
+          output: `제목: 『${title}』\n필요한 스킬 있어? ${ALL_SKILLS.join(" / ")} 중에서 골라 말해줘. (없으면 "없음")`,
+          lastProjectId,
+          pending: { kind: "register", step: "skills", draft: { ...d, title } },
+        };
+      }
+      if (pending.step === "skills") {
+        const skills = skipWord(line) ? [] : ALL_SKILLS.filter((s) => line.includes(s));
+        return {
+          output: `스킬: ${skills.join(", ") || "(없음)"}\n프로젝트 한 줄 소개 해줄래? (없으면 "없음")`,
+          lastProjectId,
+          pending: { kind: "register", step: "summary", draft: { ...d, skills } },
+        };
+      }
+      if (pending.step === "summary") {
+        const summary = skipWord(line) ? "" : line.trim();
+        const dd = { ...d, summary };
+        return {
+          output:
+            `이렇게 등록할게:\n  제목: 『${dd.title}』\n  스킬: ${(dd.skills ?? []).join(", ") || "(없음)"}\n  소개: ${summary || "(없음)"}\n등록할까? (응 / 아니)`,
+          lastProjectId,
+          pending: { kind: "register", step: "confirm", draft: dd },
+        };
+      }
+      // confirm
+      if (isNo(line)) return { output: "등록 취소했어.", lastProjectId, pending: null };
+      if (isYes(line)) {
+        if (!ctx.session) return { output: "로그인이 풀렸어. 다시 로그인하고 등록해줘.", lastProjectId, pending: null };
+        try {
+          const project = await createProject({
+            title: d.title ?? "",
+            summary: d.summary ?? "",
+            required_skills: d.skills ?? [],
+            pmName: ctx.session.name,
+            pmPhone: ctx.session.phone,
+          });
+          const { error } = await supabase
+            .from("project_pm_map")
+            .upsert({ project_id: project.id, pm_full_name: ctx.session.name }, { onConflict: "project_id" });
+          if (error) throw new Error(error.message);
+          return {
+            output: `『${project.title}』 등록 완료! 이제 네가 이 프로젝트의 PM이야. "내 프로젝트"로 신청자를 관리하고, 마음 바뀌면 "이거 삭제해줘"라고 하면 돼.`,
+            lastProjectId: project.id,
+            pending: null,
+          };
+        } catch (e) {
+          return { output: `[오류] ${e instanceof Error ? e.message : String(e)}`, lastProjectId, pending: null };
+        }
+      }
+      return { output: "등록할까? \"응\" 또는 \"아니\"로 답해줘.", lastProjectId, pending };
+    }
+    if (pending.kind === "delete") {
+      if (isNo(line)) return { output: "삭제 취소했어.", lastProjectId, pending: null };
+      if (isYes(line)) {
+        try {
+          await deleteProjectCascade(pending.projectId);
+          return {
+            output: `『${pending.title}』 삭제했어. 신청 기록도 함께 지웠어.`,
+            lastProjectId: lastProjectId === pending.projectId ? null : lastProjectId,
+            pending: null,
+          };
+        } catch (e) {
+          return { output: `[오류] ${e instanceof Error ? e.message : String(e)}`, lastProjectId, pending: null };
+        }
+      }
+      return { output: `『${pending.title}』 삭제할까? "응" 또는 "아니".`, lastProjectId, pending };
+    }
+  }
+
   let parts = line.split(/\s+/);
   let cmd = parts[0];
-  let lastProjectId = ctx.lastProjectId;
 
   if (!KNOWN_CMDS.has(cmd)) {
     const converted = nlToCommand(line, ctx.lastProjectId, ctx.session, projects);
@@ -353,11 +446,11 @@ export async function processCommand(rawLine: string, ctx: CommandContext): Prom
         out.push(`${user.name}님, 로그인 완료. 이제 "AI/ML 프로젝트 찾아줘"처럼 바로 검색해봐.`);
         out.push(`이메일: ${user.email}`);
         if (user.skills.length) out.push(`저장된 스킬: ${user.skills.join(", ")}`);
-        return { output: out.join("\n"), lastProjectId, session: { name: user.name, phone: user.phone } };
+        return { output: out.join("\n"), lastProjectId, session: { name: user.name, phone: user.phone }, pending: null };
       }
     } else if (cmd === "로그아웃") {
       out.push("로그아웃 됐어.");
-      return { output: out.join("\n"), lastProjectId, session: null };
+      return { output: out.join("\n"), lastProjectId, session: null, pending: null };
     } else if (cmd === "프로필") {
       if (!ctx.session) {
         out.push(`아직 로그인 안 했어. ${LOGIN_HELP}`);
@@ -389,37 +482,38 @@ export async function processCommand(rawLine: string, ctx: CommandContext): Prom
       if (!ctx.session) {
         out.push(`프로젝트를 등록하려면 먼저 로그인해야 해. ${LOGIN_HELP}`);
       } else {
-        // 스킬은 결정적으로 스캔, 제목/설명은 AI(가능하면)로 추출·없으면 휴리스틱.
-        const scanned = ALL_SKILLS.filter((s) => line.includes(s));
-        let title = "";
-        let summary = "";
-        const ai = await interpret(line);
-        if (ai && ai.intent === "register") {
-          title = (ai.title ?? "").trim();
-          summary = (ai.summary ?? "").trim();
-          for (const s of ai.skills) if (!scanned.includes(s)) scanned.push(s);
-        }
-        if (!title) title = heuristicTitle(line);
-        if (!title) {
-          out.push('프로젝트 제목을 못 읽었어. 제목을 넣어서 다시 말해줘 — 예) "AI 사내 상담봇 프로젝트 등록할래. 백엔드·AI/ML 필요, 사내 문의 자동응답이야"');
+        // 바로 만들지 않고 대화로 제목→스킬→소개→확인 순서로 물어본다(맥락 메모리 = pending).
+        return {
+          output: '새 프로젝트를 등록할게. 먼저 프로젝트 제목을 한 줄로 알려줘. (예: "AI 사내 상담봇")\n(취소하려면 "취소")',
+          lastProjectId,
+          pending: { kind: "register", step: "title", draft: {} },
+        };
+      }
+    } else if (cmd === "삭제") {
+      if (!ctx.session) {
+        out.push(`프로젝트를 삭제하려면 먼저 로그인해야 해. ${LOGIN_HELP}`);
+      } else {
+        const explicitId = parts.length >= 2 && getP(parts[1]) ? getP(parts[1])!.id : null;
+        const { id: nameId, score } = resolveProjectIdScored(line, projects);
+        const targetId = explicitId ?? (score >= 2 ? nameId : null) ?? lastProjectId;
+        if (!targetId) {
+          out.push('어떤 프로젝트를 삭제할까? 프로젝트 이름을 말해줘. 예) "테스트봇 삭제해줘"');
         } else {
-          const project = await createProject({
-            title,
-            summary,
-            required_skills: scanned,
-            pmName: ctx.session.name,
-            pmPhone: ctx.session.phone,
-          });
-          // PM 소유권 매핑(내프로젝트/수락/거절에서 실명 대조에 사용)
-          const { error: mapErr } = await supabase
-            .from("project_pm_map")
-            .upsert({ project_id: project.id, pm_full_name: ctx.session.name }, { onConflict: "project_id" });
-          if (mapErr) throw new Error(mapErr.message);
-          out.push(`『${project.title}』 등록 완료! 이제 네가 이 프로젝트의 PM이야.`);
-          out.push(`필요 스킬: ${scanned.join(", ") || "(미지정 — \"스킬\"로 나중에 추가 가능)"}`);
-          if (summary) out.push(`소개: ${summary}`);
-          out.push(`이제 다른 사람들이 검색·신청할 수 있어. "내 프로젝트"로 신청자를 관리해.`);
-          lastProjectId = project.id;
+          const proj = getP(targetId);
+          if (!proj) {
+            out.push(`알 수 없는 프로젝트야: ${targetId}`);
+          } else {
+            const owner = await getProjectOwnerPhone(proj.id);
+            if (owner && owner !== ctx.session.phone) {
+              out.push(`『${proj.title}』은(는) 네가 등록한 게 아니라 삭제할 수 없어.`);
+            } else {
+              return {
+                output: `『${proj.title}』을(를) 삭제할까? 신청 기록도 함께 사라져. (응 / 아니)`,
+                lastProjectId,
+                pending: { kind: "delete", projectId: proj.id, title: proj.title },
+              };
+            }
+          }
         }
       }
     } else if (cmd === "스킬" && parts.length >= 2) {
@@ -618,7 +712,7 @@ export async function processCommand(rawLine: string, ctx: CommandContext): Prom
     out.push(`[오류] ${e instanceof Error ? e.message : String(e)}`);
   }
 
-  return { output: out.join("\n"), lastProjectId };
+  return { output: out.join("\n"), lastProjectId, pending: null };
 }
 
 export type { Project };

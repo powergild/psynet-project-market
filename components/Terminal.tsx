@@ -58,6 +58,7 @@ export default function Terminal() {
   const [history, setHistory] = useState<string[]>([]);
   const [hIdx, setHIdx] = useState(0);
   const [lastProjectId, setLastProjectId] = useState<string | null>(null);
+  const [pending, setPending] = useState<unknown>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [mode, setMode] = useState<Mode>("command");
   const [partner, setPartner] = useState<{ name: string; phone: string } | null>(null);
@@ -376,7 +377,7 @@ export default function Terminal() {
       const res = await fetch("/api/exec", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ cmd: raw, session, lastProjectId }),
+        body: JSON.stringify({ cmd: raw, session, lastProjectId, pending }),
       });
       const data = await res.json();
       if ("session" in data) {
@@ -384,6 +385,9 @@ export default function Terminal() {
       }
       if (typeof data.lastProjectId === "string" || data.lastProjectId === null) {
         setLastProjectId(data.lastProjectId);
+      }
+      if ("pending" in data) {
+        setPending(data.pending ?? null);
       }
       append(data.output || "");
     } catch {
