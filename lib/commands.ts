@@ -14,7 +14,7 @@ import { ALL_SKILLS, gradeFor, type Project } from "@/lib/projects";
 import { fetchProjects, createProject, getProjectOwnerPhone, deleteProjectCascade, updateProjectTitle, updateProjectStatus } from "@/lib/projectsDb";
 import { extractEmail, extractPhone, findOrCreateUser, getUserByPhone, normalizePhone, type Session } from "@/lib/auth";
 import { getOwnedProjectIds } from "@/lib/pmMap";
-import { interpret, type AiResult } from "@/lib/aiCommand";
+import { interpret, interpretYesNo, type AiResult } from "@/lib/aiCommand";
 import { getConnectStats } from "@/lib/connect";
 
 // 여러 턴에 걸친 대화 상태(메모리). lastProjectId처럼 클라이언트가 들고 매 요청에 실어보낸다.
@@ -64,6 +64,13 @@ const YES = ["응", "네", "넵", "ㅇㅇ", "어", "그래", "맞아", "좋아",
 const NO = ["아니", "아냐", "아뇨", "노", "싫어", "안해", "no"];
 const isYes = (t: string) => { const s = t.trim().toLowerCase(); return YES.some((k) => s === k.toLowerCase() || s.includes(k.toLowerCase())); };
 const isNo = (t: string) => { const s = t.trim().toLowerCase(); return NO.some((k) => s === k.toLowerCase() || s.includes(k.toLowerCase())); };
+// 확인 답변 판정: 결정적 우선 → 애매하면 LLM 보조 → 크레딧 없으면 unclear(다시 물어봄).
+async function resolveConfirm(line: string): Promise<"yes" | "no" | "unclear"> {
+  if (isNo(line)) return "no";
+  if (isYes(line)) return "yes";
+  const ai = await interpretYesNo(line);
+  return ai ?? "unclear";
+}
 const skipWord = (t: string) => ["없음", "없어", "없다", "건너뛰", "스킵", "패스", "몰라", "생략"].some((k) => t.includes(k));
 
 function resolveProjectIdScored(text: string, projects: Project[]): { id: string | null; score: number } {
@@ -401,8 +408,9 @@ export async function processCommand(rawLine: string, ctx: CommandContext): Prom
         };
       }
       // confirm
-      if (isNo(line)) return { output: "등록 취소했어.", lastProjectId, pending: null };
-      if (isYes(line)) {
+      const ynReg = await resolveConfirm(line);
+      if (ynReg === "no") return { output: "등록 취소했어.", lastProjectId, pending: null };
+      if (ynReg === "yes") {
         if (!ctx.session) return { output: "로그인이 풀렸어. 다시 로그인하고 등록해줘.", lastProjectId, pending: null };
         try {
           const project = await createProject({
@@ -428,8 +436,9 @@ export async function processCommand(rawLine: string, ctx: CommandContext): Prom
       return { output: "등록할까? \"응\" 또는 \"아니\"로 답해줘.", lastProjectId, pending };
     }
     if (pending.kind === "delete") {
-      if (isNo(line)) return { output: "삭제 취소했어.", lastProjectId, pending: null };
-      if (isYes(line)) {
+      const ynDel = await resolveConfirm(line);
+      if (ynDel === "no") return { output: "삭제 취소했어.", lastProjectId, pending: null };
+      if (ynDel === "yes") {
         try {
           await deleteProjectCascade(pending.projectId);
           return {
@@ -470,8 +479,9 @@ export async function processCommand(rawLine: string, ctx: CommandContext): Prom
       }
     }
     if (pending.kind === "apply") {
-      if (isNo(line)) return { output: "신청 취소했어.", lastProjectId, pending: null };
-      if (isYes(line)) {
+      const ynApply = await resolveConfirm(line);
+      if (ynApply === "no") return { output: "신청 취소했어.", lastProjectId, pending: null };
+      if (ynApply === "yes") {
         if (!ctx.session) return { output: "로그인이 풀렸어. 다시 로그인하고 신청해줘.", lastProjectId, pending: null };
         try {
           const existing = (await readApps(pending.projectId)).find((r) => r.applicant === ctx.session!.name);

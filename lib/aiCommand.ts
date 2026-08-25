@@ -105,6 +105,40 @@ title: intent가 register일 때만 — 등록할 프로젝트의 간결한 제�
 summary: intent가 register일 때만 — 프로젝트를 한 줄로 설명. 없으면 빈 문자열.
 사용 가능한 스킬: ${ALL_SKILLS.join(", ")}`;
 
+const YESNO_SCHEMA = {
+  type: "object",
+  properties: { decision: { type: "string", enum: ["yes", "no", "unclear"] } },
+  required: ["decision"],
+  additionalProperties: false,
+} as const;
+
+const YESNO_SYSTEM = `사용자는 방금 "~할까? (응/아니)" 확인 질문을 받았어. 사용자의 짧은 답이 긍정(진행)인지 부정(취소)인지 판단해.
+- yes: 진행/동의 (예: "응", "그래 해", "콜", "좋아 진행해줘", "ㄱㄱ", "그렇게 해")
+- no: 취소/거절 (예: "아니", "됐어", "하지마", "관두자", "나중에", "아직")
+- unclear: 확인 답변이 아니거나 애매함 (예: 딴 얘기, 질문)
+decision 하나만 반환.`;
+
+/** 확인(응/아니) 답변을 유연하게 판정. 키없음/오류 시 null(→ 규칙 판정으로 폴백). */
+export async function interpretYesNo(line: string): Promise<"yes" | "no" | "unclear" | null> {
+  const c = getClient();
+  if (!c) return null;
+  try {
+    const res = await c.messages.create({
+      model: "claude-haiku-4-5",
+      max_tokens: 64,
+      system: YESNO_SYSTEM,
+      output_config: { format: { type: "json_schema", schema: YESNO_SCHEMA } },
+      messages: [{ role: "user", content: line }],
+    });
+    const text = res.content.find((b) => b.type === "text");
+    if (!text || text.type !== "text") return null;
+    const parsed = JSON.parse(text.text) as { decision: "yes" | "no" | "unclear" };
+    return parsed.decision;
+  } catch {
+    return null;
+  }
+}
+
 /** 자유 문장 → 구조화된 의도. 실패/키없음 시 null. */
 export async function interpret(line: string): Promise<AiResult | null> {
   const c = getClient();
