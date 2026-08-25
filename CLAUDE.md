@@ -8,15 +8,17 @@ PSYNET 내부 프로젝트 매칭 플랫폼. Next.js 15(App Router) + TypeScript
 
 ## 핵심 기능 3가지
 
-1. **프로젝트 마켓** — 자연어 터미널 UI로 프로젝트 검색 → 신청 → PM 수락/거절. 지분 협의 기능은 제거됨(단순 신청/수락만).
+1. **프로젝트 마켓** — 자연어 터미널 UI로 프로젝트 **등록(구인)** → 검색 → 신청 → PM 수락/거절. 등록자가 곧 그 프로젝트의 PM. 지분 협의 기능은 제거됨(단순 신청/수락만).
 2. **관리자 대시보드** (`/admin`) — 비밀번호 보호. 전체 유저 목록 + 프로젝트별 신청 현황 + 프로젝트 참여자 관리.
 3. **미토크리에이트** — 실명제 랜덤 1:1 매칭 채팅. `/start` 터미널 화면 안에 완전히 통합돼 있음(별도 페이지 없음).
 
-## 데이터 소스: 정적 카탈로그 vs Supabase
+## 데이터 소스: 프로젝트 카탈로그(DB) — 2026-08-25 전환
 
-- **`data/projects.json`** — 프로젝트 카탈로그(제목/PM/필요스킬/상태). **빌드타임 정적 파일**이라 런타임에 못 바꿈. PM 이름은 마스킹(성+`**`)돼서 들어감(공개 repo라서).
-  - 원천 데이터: 사내 스프레드시트(엑셀)를 사람이 붙여넣어줌 → 보안/내부행정 프로젝트 제외하고 스크립트로 재생성. 재생성 스크립트는 매번 애드혹으로 짜서 씀(엑셀 파일 경로가 바뀌므로 고정 스크립트 없음).
-  - `scripts/migrate-projects.mjs` — 예전에 `source-data/projects/*.md`(gitignored, 로컬에만 있음) 기준으로 생성하던 원래 스크립트. 지금은 엑셀 기준으로 재생성했지만 참고용으로 남겨둠.
+- **`projects` 테이블(Supabase)** — 프로젝트 카탈로그의 **단일 소스**. 사용자가 터미널 "등록"으로 직접 추가한다(등록자=PM, pm_phone에 소유자 저장, pm은 마스킹 표시명). 조회/생성은 서버 전용 **`lib/projectsDb.ts`**(`fetchProjects`/`getProjectById`/`createProject`). 순수 타입·헬퍼(`gradeFor`/`ALL_SKILLS`)만 `lib/projects.ts`에 있고 client에서도 import 가능(supabase 미포함 — 서비스키 누출 방지).
+  - 공개용 조회 API: **`GET /api/projects`**(전체, 안전필드), `GET /api/recruiting`(모집중 필터). `/projects` client 페이지는 이 API로 로드.
+  - 등록 경로: 터미널 → `nlToCommand`/AI `register` 인텐트 → `commands.ts`의 `등록` 핸들러 → `createProject` + `project_pm_map` 업서트. 제목/설명은 AI(Haiku)로 추출, 키 없으면 휴리스틱 폴백. 스킬은 `ALL_SKILLS` 결정적 스캔.
+  - **선행 SQL**: `supabase/migrations/2026-08-25-projects-table.sql`을 Supabase SQL Editor에서 1회 실행(완료됨 2026-08-25).
+- **[구·폐기] `data/projects.json`** — 예전 빌드타임 정적 카탈로그. 실서비스 전환 때 `[]`로 비웠고 코드에서 더 이상 import 안 함. 사내 엑셀 일괄시드 방식(`scripts/migrate-projects.mjs` 등)은 이제 안 씀.
 - **`project_pm_map`** (Supabase, 비공개 테이블) — 실명 PM 매핑. "내 프로젝트에 누가 신청했어?" 같은 PM 자가관리 기능에서 로그인한 사람 실명과 대조하는 용도로만 서버 코드에서 조회. **화면에 그대로 노출 금지.** `scripts/seed-pm-map.mjs`는 예전 source-data 기준 시드 스크립트 — 지금은 엑셀에서 직접 읽어 업서트하는 애드혹 스크립트를 매번 새로 씀.
 
 - **자연어 해석 모델**: `lib/aiCommand.ts`의 `claude-haiku-4-5`. **항상 최신 Haiku를 쓴다는 방침** — 다만 "최신"을 자동 추적하는 별칭은 API에 없으므로, 새 Haiku가 나오면 이 문자열을 직접 교체할 것. 모델 ID에 날짜 접미사(`-20251001` 등)를 붙이지 말 것. Haiku 4.5는 `effort` 파라미터 미지원.
@@ -86,7 +88,8 @@ PSYNET 내부 프로젝트 매칭 플랫폼. Next.js 15(App Router) + TypeScript
 
 ## 알려진 이슈 / 앞으로 고려할 것
 
-- 미토크리에이트에서 생성된 프로젝트(`connect_projects`)가 메인 카탈로그(`/projects`, "매칭" 명령)에 안 뜸 — 통합하려면 `lib/projects.ts`를 정적 JSON 전용에서 DB 병합 구조로 바꿔야 함(꽤 큰 리팩터).
-- `data/projects.json` 재생성이 애드혹 스크립트 기반이라 재현 가능한 파이프라인이 없음 — 다음에 엑셀 새로 받으면 다시 스크립트 짜야 함.
+- [해결됨 2026-08-25] 카탈로그를 `projects` 테이블(DB) 기반으로 전환 + 터미널 "등록" 기능 추가. `lib/projects.ts`(순수 헬퍼)/`lib/projectsDb.ts`(DB) 분리.
+- 미토크리에이트에서 생성된 프로젝트(`connect_projects`)는 여전히 메인 카탈로그(`projects` 테이블)와 **별개** — 메인에서 검색·신청 안 됨. 통합하려면 `connect_projects` → `projects` 편입 로직 필요(선택).
+- 등록 시 제목/설명 품질은 AI(Haiku) 파싱에 의존 — `ANTHROPIC_API_KEY` 크레딧 없으면 휴리스틱 폴백이라 제목이 거칠어질 수 있음.
 - **프로젝트 참여자(project_participants)**: 사람(실명)↔프로젝트 매핑. 미토크리에이트에서 서로 호감이면 상대의 참여 프로젝트 리스트를 터미널에 띄우고(↑/↓·마우스 선택) 선택 시 그 프로젝트에 함께 참여 신청. 관리자(/admin)에서 추가/삭제. 실명이 들어가 public GitHub엔 스키마만 커밋 — 시드는 `source-data/season2-participants.json`(git 제외) + `node scripts/seed-participants.mjs`(로컬 1회, .env.local 사용). **선행: Supabase SQL 편집기에서 project_participants 테이블 생성(schema.sql 참고).** 시즌1 봇(민준/서연/도윤/하은/지호) 및 /api/connect/simulate는 제거됨 — 매칭은 실제 유저 2명 이상일 때만.
 - **(향후) 이벤트형 매칭 활성화**: 지금은 "상대가 큐에 있으면 상시 즉시 매칭"인데, 나중에는 조건 충족 시에만 매칭이 열리는 구조로 전환 고려 — 예) 동시 접속자 100명 이상일 때, 또는 정해진 시간대(밤 9시 등)에만 활성화. 대기 인원 게이트/스케줄 게이트를 큐 로직(`connect_match_or_queue`) 앞단에 두는 형태. 접속자 수 트래킹(현재는 `connect_queue` count만 있음)과 활성 시간 관리가 선행 필요.
