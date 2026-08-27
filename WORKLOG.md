@@ -99,6 +99,12 @@
 - git history에 옛 값이 남아 public 조회 가능했던 것 확인(`172ee76`, `ff1ffc5`) → **랜덤 24자로 교체**, Vercel Production env + 로컬 `.env.local` 동기화, 빈 커밋 `c3141dd`로 재배포. 검증 완료(배포 Ready, `/admin` env 인식).
 - 교체 스크립트는 임시 scratchpad에 만들어 씀(세션 종료 시 사라짐 — 필요하면 재작성). cmd.exe에는 bash가 PATH에 없어 실행 불가 → Git Bash를 열거나, Git 설치 경로의 bin/bash.exe를 전체 경로로 지정해 실행할 것.
 
+**8. 🛡️ 관리자 접근 로그 활성화 + 잔여 정리(열린작업 3·4 해소)**
+- `2026-08-19-admin-access-alert.sql` 실행 → `admin_access_log`/`admin_alert_state` 생성. **틀린 비밀번호 1회로 end-to-end 검증**(401 거부 + `login_fail` 기록 확인), 검증용 행은 삭제.
+- 메일 발송은 사용자 결정으로 **미설정** → 이상 징후는 **직접 SQL 조회**로 확인해야 함(위 "운영 중 주기적으로 확인할 것" 참고).
+- `.claude/launch.json` 이름을 폴더명에 맞춰 수정 후 커밋 → **워킹 트리 클린**.
+- ⚠️ **함정 기록**: Supabase에서 테이블 존재 확인을 `select("*",{count:"exact",head:true})`로 하면 **없는 테이블도 오류 없이 `count:null`**을 반환해 "있음"으로 오판함(이번에 실제로 두 번 오판). **반드시 컬럼명을 명시해 select** 할 것.
+
 **주의점(다음 세션)**
 - 라이브 API 호출 테스트는 **Git Bash `curl`에서 한글이 깨짐** → Node `fetch` 스크립트로 할 것.
 - `connect_queue`에 항목이 보여도 실사용자가 대기 중일 수 있음 — **joined_at 확인 후** 손댈 것(12초 신선도 필터가 유령은 자동 정리).
