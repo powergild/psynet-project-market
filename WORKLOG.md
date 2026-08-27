@@ -100,7 +100,7 @@
 
 **7. 🔐 관리자 비밀번호 교체(열린작업 2 해소)**
 - git history에 옛 값이 남아 public 조회 가능했던 것 확인(`172ee76`, `ff1ffc5`) → **랜덤 24자로 교체**, Vercel Production env + 로컬 `.env.local` 동기화, 빈 커밋 `c3141dd`로 재배포. 검증 완료(배포 Ready, `/admin` env 인식).
-- 교체 스크립트: `scratchpad/rotate-admin-pw.sh`(임시 경로, 세션 종료 시 사라짐). 다시 필요하면 재작성. cmd.exe에선 `"C:\Program Files\Gitinash.exe"` 전체 경로로 실행해야 함.
+- 교체 스크립트는 임시 scratchpad에 만들어 씀(세션 종료 시 사라짐 — 필요하면 재작성). cmd.exe에는 bash가 PATH에 없어 실행 불가 → Git Bash를 열거나, Git 설치 경로의 bin/bash.exe를 전체 경로로 지정해 실행할 것.
 
 **주의점(다음 세션)**
 - 라이브 API 호출 테스트는 **Git Bash `curl`에서 한글이 깨짐** → Node `fetch` 스크립트로 할 것.
