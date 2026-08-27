@@ -2,7 +2,7 @@
   "version": "0.0.1",
   "configurations": [
     {
-      "name": "미토 웹페이지",
+      "name": "mitocreate-web",
       "runtimeExecutable": "cmd.exe",
       "runtimeArgs": ["/d", "/s", "/c", "set PATH=C:\\Program Files\\nodejs;%PATH% && npm run dev"],
       "port": 3000,
