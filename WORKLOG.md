@@ -31,16 +31,14 @@
    - **git history rewrite는 하지 않음(불필요)** — GitHub 캐시/기존 clone에 남아 완전 제거가 불가능하고, 값이 이미 무효라 히스토리의 옛 값은 무해함. 다시 문제 제기하지 말 것.
    - ⚠️ 교훈: 비밀번호·키는 어떤 문서에도 적지 말 것(`CLAUDE.md`에 규칙 명시됨). 적었다면 파일 수정이 아니라 **값 교체**가 유일한 해결책.
 
-3. **관리자 접근 감시 — 현재 완전 비활성 (2026-08-25 실측)**
-   - **메일 발송은 안 하기로 사용자 결정** — 다시 권하지 말 것.
-   - ❗ **그런데 로그 기록도 안 되고 있음**: `admin_access_log` / `admin_alert_state` 테이블이 **DB에 없음**(2026-08-25 확인 — 컬럼 조회 시 `schema cache`에 없다고 응답). 즉 선행 SQL이 한 번도 실행된 적 없음.
-     → 결과: 새 IP 로그인, 무차별 대입, 쿠키 위조 **어느 것도 기록되지 않음.** "나중에 직접 로그 확인"이 불가능한 상태.
-     → 로그인 자체는 정상(감시 코드가 예외를 삼키도록 짜여 있음).
-   - 감시를 켜려면 이것만 실행하면 됨(메일과 무관, 로그만 쌓임):
-     `supabase/migrations/2026-08-19-admin-access-alert.sql` → Supabase SQL Editor
-   - 실행 후 확인: `select * from admin_access_log order by at desc limit 50;`
-   - (선택) 메일까지 켜려면: resend.com API 키 → Vercel env `RESEND_API_KEY` (+ 도메인 미인증 시 `ALERT_EMAIL_FROM=onboarding@resend.dev`).
-   - ⚠️ 조회 팁: Supabase 테이블 존재 확인은 `select("*", {count:"exact",head:true})`로 하면 **없는 테이블도 오류 없이 null**을 반환해 오탐남. 반드시 **컬럼명을 명시해 select** 할 것.
+3. ~~**관리자 접근 감시**~~ ✅ **로그 기록 활성화 완료(2026-08-25)**
+   - `2026-08-19-admin-access-alert.sql` 실행됨 → `admin_access_log` / `admin_alert_state` 생성 확인.
+   - **end-to-end 검증 통과**: 틀린 비밀번호로 1회 시도 → 401 거부 + `login_fail`(IP·path·시각) 정상 기록. 검증용 행은 삭제해 로그는 0건에서 시작.
+   - **메일 발송은 안 하기로 사용자 결정(재제안 불필요)** — `RESEND_API_KEY` 미설정. 감지·기록은 되지만 알림은 안 옴 → **주기적으로 직접 조회**해야 함:
+     `select * from admin_access_log order by at desc limit 50;`
+   - 보는 법: `login_success`가 **모르는 IP**에서 찍혔으면 비밀번호 유출 의심(즉시 교체). `login_fail`이 짧은 시간에 몰렸으면 대입 시도. `bad_token`은 쿠키 위조 시도.
+   - 나중에 메일을 켜려면: resend.com API 키 → Vercel env `RESEND_API_KEY` (+ 도메인 미인증 시 `ALERT_EMAIL_FROM=onboarding@resend.dev`).
+   - ⚠️ 조회 팁: Supabase 테이블 존재 확인을 `select("*",{count:"exact",head:true})`로 하면 **없는 테이블도 오류 없이 null**을 반환해 오탐남. 반드시 **컬럼명을 명시해 select** 할 것(이번에 실제로 오판했음).
 
 4. `.claude/launch.json` 변경 커밋할지 결정 (사소, 커밋해도 무방)
 
