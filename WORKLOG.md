@@ -25,11 +25,11 @@
 
 1. ~~**Supabase RPC 마이그레이션 적용**~~ ✅ **완료(2026-08-19)** — SQL Editor에서 `2026-08-18-connect-liveness.sql` 실행됨. `connect_match_or_queue` 12초 신선도 필터 동작, 유령 큐 0 확인.
 
-2. 🔴 **관리자 비밀번호 교체 — 이제 "보류" 아님, 지금 필요 (2026-08-19 승격)**
-   - repo가 **다시 public**이 됨(배포 위해) → **git history의 옛 비밀번호가 재노출**. private 전환 완화책이 무효화됨.
-   - 감시(이상접근 알림)만으로는 부족 — **`ADMIN_PASSWORD`를 교체할 것.**
-   - 절차: Vercel env `ADMIN_PASSWORD` 수정 → **`git push`(빈 커밋)로 자동재배포** → 로컬 `.env.local` 동기화. (sha256 토큰이라 교체 시 기존 관리자 쿠키 자동 무효화)
-   - 대안(private 유지가 우선이면): repo 다시 private + Vercel을 powergild 계정으로 완전 이전(그래야 배포 유지). git history rewrite는 여전히 안 하기로 함(교체가 더 간단).
+2. ~~**관리자 비밀번호 교체**~~ ✅ **완료(2026-08-25)**
+   - 배경: repo가 public이라 **git history에 옛 비밀번호가 그대로 남아 있었음**(현재 파일에서 지워도 삭제 커밋 diff에 값이 보존됨). 실측 확인: `172ee76`(2026-07-23 추가), `ff1ffc5`(2026-08-19 삭제) 두 커밋에서 조회 가능했음.
+   - 조치: `ADMIN_PASSWORD`를 **강력한 랜덤 24자로 교체**(Vercel Production env + 로컬 `.env.local` 동기화) → 빈 커밋 `c3141dd`로 재배포. 검증: 배포 Ready, `/admin` 로그인 화면 정상(env 인식), 기존 관리자 쿠키는 sha256 해시 불일치로 전부 자동 무효화.
+   - **git history rewrite는 하지 않음(불필요)** — GitHub 캐시/기존 clone에 남아 완전 제거가 불가능하고, 값이 이미 무효라 히스토리의 옛 값은 무해함. 다시 문제 제기하지 말 것.
+   - ⚠️ 교훈: 비밀번호·키는 어떤 문서에도 적지 말 것(`CLAUDE.md`에 규칙 명시됨). 적었다면 파일 수정이 아니라 **값 교체**가 유일한 해결책.
 
 3. **알림 메일 활성화 — 사용자 조치 필요**
    - 코드는 완성됐지만 `RESEND_API_KEY`가 없으면 메일이 안 나가고 서버 로그에만 남는다.
@@ -97,6 +97,10 @@
 
 **6. 종합 인수테스트 — 24 PASS / 0 FAIL (라이브)**
 - 3계정(PM 이준호 / 신청자 김만지·박효신)으로 권한·등록·검색·신청·수락·수정·상태·취소·삭제 전 경로 검증. 테스트 데이터 전부 정리(projects·applications 0 확인).
+
+**7. 🔐 관리자 비밀번호 교체(열린작업 2 해소)**
+- git history에 옛 값이 남아 public 조회 가능했던 것 확인(`172ee76`, `ff1ffc5`) → **랜덤 24자로 교체**, Vercel Production env + 로컬 `.env.local` 동기화, 빈 커밋 `c3141dd`로 재배포. 검증 완료(배포 Ready, `/admin` env 인식).
+- 교체 스크립트: `scratchpad/rotate-admin-pw.sh`(임시 경로, 세션 종료 시 사라짐). 다시 필요하면 재작성. cmd.exe에선 `"C:\Program Files\Gitinash.exe"` 전체 경로로 실행해야 함.
 
 **주의점(다음 세션)**
 - 라이브 API 호출 테스트는 **Git Bash `curl`에서 한글이 깨짐** → Node `fetch` 스크립트로 할 것.
