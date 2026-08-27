@@ -31,13 +31,16 @@
    - **git history rewrite는 하지 않음(불필요)** — GitHub 캐시/기존 clone에 남아 완전 제거가 불가능하고, 값이 이미 무효라 히스토리의 옛 값은 무해함. 다시 문제 제기하지 말 것.
    - ⚠️ 교훈: 비밀번호·키는 어떤 문서에도 적지 말 것(`CLAUDE.md`에 규칙 명시됨). 적었다면 파일 수정이 아니라 **값 교체**가 유일한 해결책.
 
-3. **알림 메일 활성화 — 사용자 조치 필요**
-   - 코드는 완성됐지만 `RESEND_API_KEY`가 없으면 메일이 안 나가고 서버 로그에만 남는다.
-   - [ ] `supabase/migrations/2026-08-19-admin-access-alert.sql`을 Supabase SQL Editor에서 실행 (선행 필수)
-   - [ ] resend.com 가입 → API 키 발급 → Vercel env `RESEND_API_KEY` 등록
-   - [ ] 도메인 인증 전이면 `ALERT_EMAIL_FROM=onboarding@resend.dev` (Resend 가입 계정 본인 메일로만 발송됨).
-         `junholee940930@psynet.co.kr`로 받으려면 그 주소로 가입하거나 psynet.co.kr 도메인 인증 필요.
-   - [ ] 재배포 후 일부러 비밀번호 틀리기 5회 → 알림 메일 오는지 확인
+3. **관리자 접근 감시 — 현재 완전 비활성 (2026-08-25 실측)**
+   - **메일 발송은 안 하기로 사용자 결정** — 다시 권하지 말 것.
+   - ❗ **그런데 로그 기록도 안 되고 있음**: `admin_access_log` / `admin_alert_state` 테이블이 **DB에 없음**(2026-08-25 확인 — 컬럼 조회 시 `schema cache`에 없다고 응답). 즉 선행 SQL이 한 번도 실행된 적 없음.
+     → 결과: 새 IP 로그인, 무차별 대입, 쿠키 위조 **어느 것도 기록되지 않음.** "나중에 직접 로그 확인"이 불가능한 상태.
+     → 로그인 자체는 정상(감시 코드가 예외를 삼키도록 짜여 있음).
+   - 감시를 켜려면 이것만 실행하면 됨(메일과 무관, 로그만 쌓임):
+     `supabase/migrations/2026-08-19-admin-access-alert.sql` → Supabase SQL Editor
+   - 실행 후 확인: `select * from admin_access_log order by at desc limit 50;`
+   - (선택) 메일까지 켜려면: resend.com API 키 → Vercel env `RESEND_API_KEY` (+ 도메인 미인증 시 `ALERT_EMAIL_FROM=onboarding@resend.dev`).
+   - ⚠️ 조회 팁: Supabase 테이블 존재 확인은 `select("*", {count:"exact",head:true})`로 하면 **없는 테이블도 오류 없이 null**을 반환해 오탐남. 반드시 **컬럼명을 명시해 select** 할 것.
 
 4. `.claude/launch.json` 변경 커밋할지 결정 (사소, 커밋해도 무방)
 
