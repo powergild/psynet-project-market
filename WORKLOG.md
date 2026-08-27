@@ -21,27 +21,23 @@
 | **프로젝트 카탈로그** | **DB `projects` 테이블**(정적 `data/projects.json`은 `[]`로 비움·폐기). 현재 0건 — 사용자가 터미널에서 직접 등록 |
 | AI 해석 | `claude-haiku-4-5` **크레딧 정상**(2026-08-25 실측: 의도해석·yes/no 보조 동작) |
 
-### ⚠️ 열린 작업 (다음 세션에서 제일 먼저 확인)
+### ✅ 열린 작업 없음 (2026-08-25 기준 전부 해소)
 
-1. ~~**Supabase RPC 마이그레이션 적용**~~ ✅ **완료(2026-08-19)** — SQL Editor에서 `2026-08-18-connect-liveness.sql` 실행됨. `connect_match_or_queue` 12초 신선도 필터 동작, 유령 큐 0 확인.
+| # | 항목 | 해소 |
+|---|---|---|
+| 1 | Supabase RPC 마이그레이션 | 2026-08-19 — `connect-liveness.sql` 실행, 12초 신선도 필터 동작 |
+| 2 | 관리자 비밀번호 교체 | 2026-08-25 — 랜덤 24자로 교체·재배포. **git history rewrite는 불필요(값이 이미 무효) — 다시 제기하지 말 것** |
+| 3 | 관리자 접근 감시 | 2026-08-25 — 로그 테이블 생성 + 기록 동작 검증. **메일 발송은 안 하기로 결정(재제안 불필요)** |
+| 4 | `.claude/launch.json` | 2026-08-25 — 폴더명에 맞춰 이름 수정 후 커밋 |
 
-2. ~~**관리자 비밀번호 교체**~~ ✅ **완료(2026-08-25)**
-   - 배경: repo가 public이라 **git history에 옛 비밀번호가 그대로 남아 있었음**(현재 파일에서 지워도 삭제 커밋 diff에 값이 보존됨). 실측 확인: `172ee76`(2026-07-23 추가), `ff1ffc5`(2026-08-19 삭제) 두 커밋에서 조회 가능했음.
-   - 조치: `ADMIN_PASSWORD`를 **강력한 랜덤 24자로 교체**(Vercel Production env + 로컬 `.env.local` 동기화) → 빈 커밋 `c3141dd`로 재배포. 검증: 배포 Ready, `/admin` 로그인 화면 정상(env 인식), 기존 관리자 쿠키는 sha256 해시 불일치로 전부 자동 무효화.
-   - **git history rewrite는 하지 않음(불필요)** — GitHub 캐시/기존 clone에 남아 완전 제거가 불가능하고, 값이 이미 무효라 히스토리의 옛 값은 무해함. 다시 문제 제기하지 말 것.
-   - ⚠️ 교훈: 비밀번호·키는 어떤 문서에도 적지 말 것(`CLAUDE.md`에 규칙 명시됨). 적었다면 파일 수정이 아니라 **값 교체**가 유일한 해결책.
+### 🔁 운영 중 주기적으로 확인할 것
 
-3. ~~**관리자 접근 감시**~~ ✅ **로그 기록 활성화 완료(2026-08-25)**
-   - `2026-08-19-admin-access-alert.sql` 실행됨 → `admin_access_log` / `admin_alert_state` 생성 확인.
-   - **end-to-end 검증 통과**: 틀린 비밀번호로 1회 시도 → 401 거부 + `login_fail`(IP·path·시각) 정상 기록. 검증용 행은 삭제해 로그는 0건에서 시작.
-   - **메일 발송은 안 하기로 사용자 결정(재제안 불필요)** — `RESEND_API_KEY` 미설정. 감지·기록은 되지만 알림은 안 옴 → **주기적으로 직접 조회**해야 함:
-     `select * from admin_access_log order by at desc limit 50;`
-   - 보는 법: `login_success`가 **모르는 IP**에서 찍혔으면 비밀번호 유출 의심(즉시 교체). `login_fail`이 짧은 시간에 몰렸으면 대입 시도. `bad_token`은 쿠키 위조 시도.
-   - 나중에 메일을 켜려면: resend.com API 키 → Vercel env `RESEND_API_KEY` (+ 도메인 미인증 시 `ALERT_EMAIL_FROM=onboarding@resend.dev`).
-   - ⚠️ 조회 팁: Supabase 테이블 존재 확인을 `select("*",{count:"exact",head:true})`로 하면 **없는 테이블도 오류 없이 null**을 반환해 오탐남. 반드시 **컬럼명을 명시해 select** 할 것(이번에 실제로 오판했음).
-
-4. `.claude/launch.json` 변경 커밋할지 결정 (사소, 커밋해도 무방)
-
+- **관리자 접근 로그** (메일 알림이 없으므로 직접 봐야 함) — Supabase SQL Editor:
+  `select * from admin_access_log order by at desc limit 50;`
+  - `login_success` + **모르는 IP** → 🔴 비밀번호 유출 의심, 즉시 교체
+  - `login_fail` 단시간 다발 → 🟠 대입 시도(미돌파) / `bad_token` → 🟠 쿠키 위조 시도
+  - 로그가 쌓이면 90일 정리: `delete from admin_access_log where at < now() - interval '90 days';`
+- **Anthropic 크레딧** — 떨어지면 자연어 해석이 규칙 파서로 폴백(서비스는 유지되나 인식률 저하).
 
 ### 백로그 (급하지 않음)
 
