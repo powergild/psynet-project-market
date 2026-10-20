@@ -116,7 +116,22 @@ const SYSTEM = `너는 스포츠 데이터 분석 엔진이다. "행 축 × 열 
 - 대상(ctx)이 붙어 있으면 그 경기 맥락에서의 값으로 본다.
 - 값은 현실적 범위여야 한다. 점유율 95%, 축구 기대득점 9.9 같은 값 금지.
 
+값은 **정확히 하나**다. 홈/원정처럼 두 값이 떠오르면 하나로 종합해서 단일 값으로 내라.
+쉼표로 여러 값을 나열하는 것은 금지한다. (잘못된 예: "1.82, 0.94" / 올바른 예: "1.82")
+
 입력의 각 항목 i를 그대로 돌려주고, cells 배열 길이는 입력 길이와 같아야 한다.`;
+
+
+/** 모델 응답 정규화 — 쉼표 나열·군더더기를 잘라 단일 값만 남긴다. */
+function sanitize(raw: string): string | null {
+  let v = raw.trim();
+  if (!v) return null;
+  if (v.includes("—") || v.includes("-—")) return "—";
+  v = v.split(/[,/]/)[0].trim();            // "1.82, 0.94" → "1.82"
+  const m = v.match(/^-?\d+(?:\.\d+)?\s*%?/);  // 숫자(+%)만 취한다
+  if (!m) return null;
+  return m[0].replace(/\s+/g, "").slice(0, 10);
+}
 
 async function aiCompute(reqs: CellRequest[], ctx: MatchContext): Promise<Map<number, string>> {
   const out = new Map<number, string>();
@@ -147,8 +162,9 @@ async function aiCompute(reqs: CellRequest[], ctx: MatchContext): Promise<Map<nu
     if (!text || text.type !== "text") return out;
     const parsed = JSON.parse(text.text) as { cells: { i: number; value: string }[] };
     for (const cell of parsed.cells ?? []) {
-      if (typeof cell.i === "number" && typeof cell.value === "string" && cell.value.trim()) {
-        out.set(cell.i, cell.value.trim().slice(0, 12));
+      if (typeof cell.i === "number" && typeof cell.value === "string") {
+        const v = sanitize(cell.value);
+        if (v) out.set(cell.i, v);
       }
     }
   } catch {
