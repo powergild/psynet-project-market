@@ -1,41 +1,71 @@
-import LandingDemo from "@/components/LandingDemo";
-import { fetchProjects } from "@/lib/projectsDb";
+import Link from "next/link";
+import DataBox from "@/components/DataBox";
+import { getMatchSource, type Match } from "@/lib/matches";
 
-// 구인 중 = 형성/개발 단계 + 모집중. /api/recruiting과 동일 기준.
-const RECRUITING_STATUS = new Set(["기획", "예정", "개발", "모집중"]);
+export const dynamic = "force-dynamic";
 
-// 외부 유입 캠페인(커뮤니티·광고 등)에서 ?ref=... 로 도착하면 #2 히어로("네 회사가 아니어도 돼")를,
-// 그 외 일반 방문은 기본 #1 히어로를 노출. (카피 전략: #1 메인 유지 + #2 캠페인 병행)
-export default async function HomePage({
-  searchParams,
-}: {
-  searchParams: Promise<Record<string, string | string[] | undefined>>;
-}) {
-  const params = await searchParams;
-  const isCampaign = typeof params.ref === "string" && params.ref.length > 0;
-  const recruitingCount = (await fetchProjects()).filter((p) => RECRUITING_STATUS.has(p.status)).length;
+const LABEL: Record<Match["status"], { t: string; c: string }> = {
+  live: { t: "LIVE", c: "live" },
+  scheduled: { t: "예정", c: "sched" },
+  finished: { t: "종료", c: "fin" },
+};
+
+function timeText(m: Match) {
+  if (m.status === "live") return m.minute ?? "진행 중";
+  if (m.status === "finished") return "경기 종료";
+  const d = new Date(m.startsAt);
+  return `${d.getHours()}:${String(d.getMinutes()).padStart(2, "0")} 시작`;
+}
+
+export default async function HomePage() {
+  const matches = await getMatchSource().listMatches();
+  const live = matches.filter((m) => m.status === "live");
+  const rest = matches.filter((m) => m.status !== "live");
+
+  const card = (m: Match) => (
+    <Link className="mcard" href={`/match/${m.id}`} key={m.id}>
+      <div className="lg">
+        <span className={`badge ${LABEL[m.status].c}`}>{LABEL[m.status].t}</span>
+        <span>{m.sport} · {m.league}</span>
+        <span style={{ marginLeft: "auto" }}>{timeText(m)}</span>
+      </div>
+      <div className="teams">
+        <span className="nm">{m.home}</span>
+        <span className="vs">vs</span>
+        <span className="nm">{m.away}</span>
+        <span className="sc num">
+          {m.scoreHome === null ? "–" : `${m.scoreHome} : ${m.scoreAway}`}
+        </span>
+      </div>
+    </Link>
+  );
 
   return (
-    <main className="landing">
-      <div className="eyebrow">PSYNET · PROJECT MARKET</div>
-      {isCampaign ? (
-        <>
-          <h1 className="landing-h1">
-            네 회사가 <b>아니어도</b> 돼
-          </h1>
-          <p className="sub" style={{ marginTop: -8 }}>
-            만들면 투자, 참여하면 성과금 — 지금 <b>{recruitingCount}개</b> 프로젝트가 사람 구하는 중.
-          </p>
-        </>
-      ) : (
-        <h1 className="landing-h1">
-          만들면 <b>투자받고</b>, 참여하면 <b>성과금</b>
-        </h1>
-      )}
-      <LandingDemo />
-      <a href={isCampaign ? "/projects?recruiting=1" : "/start"} id="demo-start-btn">
-        {isCampaign ? "구인 중 프로젝트 보기 →" : "참여하기 →"}
-      </a>
+    <main className="app">
+      <header className="topbar">
+        <h1>데이터 박스</h1>
+        <span className="spacer" />
+        <span className="who">축을 교차시키면 AI가 채웁니다</span>
+      </header>
+
+      <div className="main">
+        {live.length > 0 && (
+          <>
+            <div className="seclabel">진행 중</div>
+            {live.map(card)}
+          </>
+        )}
+        <div className="seclabel">{live.length ? "그 외 경기" : "경기"}</div>
+        {rest.map(card)}
+
+        <div className="note" style={{ paddingLeft: 2, paddingRight: 2 }}>
+          경기를 고르면 그 경기 선수를 축으로 쓸 수 있고, 내 박스가 이 경기에 반응합니다.
+          <br />우측 하단 버튼으로는 어디서나 박스를 열 수 있습니다.
+        </div>
+      </div>
+
+      {/* 경기 밖 — 발광 없음, 선수 축 선택 불가 */}
+      <DataBox match={null} />
     </main>
   );
 }
