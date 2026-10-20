@@ -1,38 +1,35 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { catalogFor, searchAxes, DEFAULT_ROWS, DEFAULT_COLS, type AxisDef } from "@/lib/axes";
+import { catalogFor, searchAxes, DEFAULT_ROWS, DEFAULT_COLS, type AxisDef, type AxisKind } from "@/lib/axes";
 import type { Match } from "@/lib/matches";
 
 type Axis = { id: string; ax: string | null; ctx: string | null; src: string | null };
-type Target = { kind: "row" | "col"; id: string } | null;
-type Sheet = "axis" | "match" | null;
+type Target = { kind: AxisKind; id: string } | null;
 
 const uid = () => Math.random().toString(36).slice(2, 9);
 const ck = (r: string, c: string) => `${r}::${c}`;
-const STORE = "databox_v1";
+
+/** 박스는 경기 단위로 분리 저장한다. 메인(경기 무관)과 경기별 박스는 서로 다른 박스다. */
+const storeKey = (matchId: string | null) => `databox_v1:${matchId ?? "global"}`;
 
 const mkAxes = (names: string[], ctx: string | null): Axis[] =>
   names.map((ax) => ({ id: uid(), ax, ctx, src: null }));
 
-/** 데이터 박스 = 메인 화면. 경기는 박스에 붙이는 맥락일 뿐 별도 목적지가 아니다. */
-export default function DataBox({
-  matches,
-  initialMatchId = null,
-}: {
-  matches: Match[];
-  initialMatchId?: string | null;
-}) {
-  const [matchId, setMatchId] = useState<string | null>(initialMatchId);
-  const match = matches.find((m) => m.id === matchId) ?? null;
+/**
+ * 데이터 박스.
+ * - 메인(match=null): 경기에 묶이지 않은 내 박스. 일반 지표만.
+ * - 경기 상세(match=…): 그 경기 전용 박스. 선수 축을 쓸 수 있고 발광 대상이 된다.
+ */
+export default function DataBox({ match = null }: { match?: Match | null }) {
+  const matchId = match?.id ?? null;
   const scope = match ? `${match.home}·${match.away}` : null;
 
-  const [name, setName] = useState("내 첫 박스");
+  const [name] = useState(match ? `${match.home}·${match.away} 박스` : "내 박스");
   const [rows, setRows] = useState<Axis[]>([]);
   const [cols, setCols] = useState<Axis[]>([]);
   const [cells, setCells] = useState<Record<string, string>>({});
   const [pending, setPending] = useState<Set<string>>(new Set());
-  const [sheet, setSheet] = useState<Sheet>(null);
   const [target, setTarget] = useState<Target>(null);
   const [q, setQ] = useState("");
   const [toast, setToast] = useState<string | null>(null);
@@ -47,11 +44,11 @@ export default function DataBox({
 
   // ── 셀 계산 ──────────────────────────────────────
   const compute = useCallback(
-    async (rs: Axis[], cs: Axis[], only?: { kind: "row" | "col"; id: string }) => {
+    async (rs: Axis[], cs: Axis[], only?: { kind: AxisKind; id: string }) => {
       const pairs: { row: Axis; col: Axis }[] = [];
       for (const r of rs) {
         for (const c of cs) {
-          if (!r.ax || !c.ax) continue;                      // (빈칸)은 계산하지 않는다
+          if (!r.ax || !c.ax) continue;                       // (빈칸)은 계산하지 않는다
           if (only?.kind === "row" && r.id !== only.id) continue;
           if (only?.kind === "col" && c.id !== only.id) continue;
           pairs.push({ row: r, col: c });
@@ -66,7 +63,7 @@ export default function DataBox({
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            matchId: matchId ?? null,
+            matchId,
             pairs: pairs.map((p) => ({
               row: { id: p.row.id, name: p.row.ax, ctx: p.row.ctx },
               col: { id: p.col.id, name: p.col.ax, ctx: p.col.ctx },
@@ -77,7 +74,7 @@ export default function DataBox({
         if (d.ok) out = d.cells; else say("계산에 실패했습니다.");
       } catch { say("인터넷 연결을 확인해주세요."); }
 
-      const step = out.length > 12 ? 24 : 55;   // 셀이 순차로 확정되는 과정 자체가 제품 설명이 된다
+      const step = out.length > 12 ? 24 : 55;   // 순차로 확정되는 과정 자체가 제품 설명이 된다
       for (const cell of out) {
         await new Promise((r) => setTimeout(r, step));
         setCells((p) => ({ ...p, [ck(cell.rowId, cell.colId)]: cell.value }));
@@ -94,12 +91,11 @@ export default function DataBox({
     ready.current = true;
     let restored = false;
     try {
-      const raw = window.localStorage.getItem(STORE);
+      const raw = window.localStorage.getItem(storeKey(matchId));
       if (raw) {
         const s = JSON.parse(raw);
         if (Array.isArray(s.rows) && s.rows.length) {
           setRows(s.rows); setCols(s.cols ?? []); setCells(s.cells ?? {});
-          setName(s.name ?? "내 첫 박스");
           restored = true;
         }
       }
@@ -111,18 +107,18 @@ export default function DataBox({
       setRows(rs); setCols(cs);
       void compute(rs, cs);
     }
-  }, [compute, scope]);
+  }, [compute, scope, matchId]);
 
   useEffect(() => {
     if (!rows.length) return;
-    try { window.localStorage.setItem(STORE, JSON.stringify({ name, rows, cols, cells })); } catch {}
-  }, [name, rows, cols, cells]);
+    try { window.localStorage.setItem(storeKey(matchId), JSON.stringify({ rows, cols, cells })); } catch {}
+  }, [rows, cols, cells, matchId]);
 
   // ── 축 조작 ──────────────────────────────────────
-  const addBlank = (kind: "row" | "col") => {
+  const addBlank = (kind: AxisKind) => {
     const a: Axis = { id: uid(), ax: null, ctx: scope, src: null };
     if (kind === "row") setRows((p) => [...p, a]); else setCols((p) => [...p, a]);
-    setTarget({ kind, id: a.id }); setQ(""); setSheet("axis");
+    setTarget({ kind, id: a.id }); setQ("");
   };
 
   const pickAxis = (def: AxisDef) => {
@@ -131,52 +127,36 @@ export default function DataBox({
     const apply = (l: Axis[]) => l.map((a) => (a.id === id ? { ...a, ax: def.name, ctx: scope } : a));
     const nr = kind === "row" ? apply(rows) : rows;
     const nc = kind === "col" ? apply(cols) : cols;
-    setRows(nr); setCols(nc); setTarget(null); setSheet(null);
+    setRows(nr); setCols(nc); setTarget(null);
     void compute(nr, nc, { kind, id });              // 해당 행/열만 부분 재계산
   };
 
-  const removeAxis = (kind: "row" | "col", id: string) => {
+  const removeAxis = (kind: AxisKind, id: string) => {
     if (kind === "row") setRows((p) => p.filter((a) => a.id !== id));
     else setCols((p) => p.filter((a) => a.id !== id));
     setCells((p) => Object.fromEntries(Object.entries(p).filter(([k]) => !k.includes(id))));
-    setSheet(null); setTarget(null);
+    setTarget(null);
   };
 
-  const pickMatch = (id: string | null) => {
-    setMatchId(id); setSheet(null);
-    const m = matches.find((x) => x.id === id) ?? null;
-    say(m ? `${m.home}·${m.away} 맥락으로 전환했습니다.` : "경기 밖 — 일반 지표로 봅니다.");
-  };
-
-  const groups = searchAxes(catalogFor(match?.players), q);
+  const groups = target ? searchAxes(catalogFor(target.kind, match?.players), q) : [];
+  const targetHasAxis = !!target && [...rows, ...cols].find((a) => a.id === target.id)?.ax;
 
   return (
-    <main className="app">
-      <header className="topbar">
-        <h1>{name}</h1>
-        <span className="spacer" />
-        <button className="ctxbtn" onClick={() => setSheet("match")}>
-          {scope ? <><span className="dot" />{scope}</> : "경기 밖"}
-          <span className="caret">▾</span>
-        </button>
-      </header>
-
+    <>
       {pending.size > 0 && (
         <div className="statusline">셀을 채우는 중 · {pending.size}칸 남음</div>
-      )}
-      {!scope && pending.size === 0 && (
-        <div className="statusline soft">경기를 고르면 그 경기 선수를 축으로 쓸 수 있습니다.</div>
       )}
 
       <div className="boxmain">
         <Grid
           rows={rows} cols={cols} cells={cells} pending={pending} scope={scope}
-          onPickTarget={(t) => { setTarget(t); setQ(""); setSheet("axis"); }}
+          onPickTarget={(t) => { setTarget(t); setQ(""); }}
           onAdd={addBlank}
         />
         <p className="note">
-          헤더를 누르면 축을 바꾸거나 지울 수 있고, <b>+</b>를 누르면 빈 칸이 생깁니다.
-          <br />(빈칸)은 계산하지 않습니다.
+          <b>행</b>은 기준(팀·선수·환경·상황), <b>열</b>은 지표(기대값·기록)입니다.
+          셀은 “이 기준에서 이 지표가 얼마인가”로 읽습니다.
+          <br />헤더를 누르면 바꾸거나 지울 수 있고, <b>+</b>를 누르면 빈 칸이 생깁니다.
         </p>
       </div>
 
@@ -188,21 +168,26 @@ export default function DataBox({
       </div>
 
       {/* ── 축 선택 시트 ── */}
-      {sheet === "axis" && (
+      {target && (
         <>
-          <div className="scrim" onClick={() => { setSheet(null); setTarget(null); }} />
-          <div className="sheet" role="dialog" aria-label="데이터 고르기">
+          <div className="scrim" onClick={() => setTarget(null)} />
+          <div className="sheet" role="dialog" aria-label="축 고르기">
             <div className="grab"><i /></div>
             <div className="shead">
-              <span className="bname">데이터 고르기</span>
+              <span className="bname">
+                {target.kind === "row" ? "기준 고르기" : "지표 고르기"}
+              </span>
+              <span className="chip">{target.kind === "row" ? "행" : "열"}</span>
               <span className="spacer" />
-              {target && rows.concat(cols).find((a) => a.id === target.id)?.ax && (
-                <button className="btn danger" onClick={() => removeAxis(target.kind, target.id)}>축 삭제</button>
+              {targetHasAxis && (
+                <button className="btn danger" onClick={() => removeAxis(target.kind, target.id)}>삭제</button>
               )}
-              <button className="btn" onClick={() => { setSheet(null); setTarget(null); }}>닫기</button>
+              <button className="btn" onClick={() => setTarget(null)}>닫기</button>
             </div>
             <div className="axsearch">
-              <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="축 이름으로 찾기" autoComplete="off" />
+              <input value={q} onChange={(e) => setQ(e.target.value)}
+                     placeholder={target.kind === "row" ? "기준 이름으로 찾기" : "지표 이름으로 찾기"}
+                     autoComplete="off" />
             </div>
             <div className="sbody">
               {groups.length === 0 && (
@@ -225,47 +210,8 @@ export default function DataBox({
         </>
       )}
 
-      {/* ── 경기 선택 시트 ── */}
-      {sheet === "match" && (
-        <>
-          <div className="scrim" onClick={() => setSheet(null)} />
-          <div className="sheet" role="dialog" aria-label="경기 고르기">
-            <div className="grab"><i /></div>
-            <div className="shead">
-              <span className="bname">어느 경기로 볼까요</span>
-              <span className="spacer" />
-              <button className="btn" onClick={() => setSheet(null)}>닫기</button>
-            </div>
-            <div className="sbody">
-              <button className={`mrow${matchId === null ? " on" : ""}`} onClick={() => pickMatch(null)}>
-                <div className="mr-main">
-                  <div className="mr-t">경기 밖 · 일반 지표</div>
-                  <div className="mr-s">특정 경기에 묶이지 않은 값으로 봅니다</div>
-                </div>
-              </button>
-              {matches.map((m) => (
-                <button key={m.id} className={`mrow${matchId === m.id ? " on" : ""}`} onClick={() => pickMatch(m.id)}>
-                  <div className="mr-main">
-                    <div className="mr-t">
-                      <span className={`badge ${m.status === "live" ? "live" : m.status === "finished" ? "fin" : "sched"}`}>
-                        {m.status === "live" ? "LIVE" : m.status === "finished" ? "종료" : "예정"}
-                      </span>
-                      {m.home} vs {m.away}
-                    </div>
-                    <div className="mr-s">
-                      {m.sport} · {m.league}
-                      {m.scoreHome !== null && ` · ${m.scoreHome} : ${m.scoreAway}`}
-                    </div>
-                  </div>
-                </button>
-              ))}
-            </div>
-          </div>
-        </>
-      )}
-
       {toast && <div className="toast">{toast}</div>}
-    </main>
+    </>
   );
 }
 
@@ -276,7 +222,7 @@ function Grid({
   rows: Axis[]; cols: Axis[]; cells: Record<string, string>; pending: Set<string>;
   scope: string | null;
   onPickTarget: (t: Target) => void;
-  onAdd: (kind: "row" | "col") => void;
+  onAdd: (kind: AxisKind) => void;
 }) {
   const sub = (a: Axis) => {
     const parts: string[] = [];
@@ -285,7 +231,7 @@ function Grid({
     return parts.join(" · ");
   };
 
-  const head = (a: Axis, kind: "row" | "col") => (
+  const head = (a: Axis, kind: AxisKind) => (
     <th
       key={a.id}
       className={(kind === "row" ? "rowhead" : "") + (a.ax ? "" : " blank")}
@@ -301,9 +247,9 @@ function Grid({
       <table>
         <thead>
           <tr>
-            <th className="corner">축</th>
+            <th className="corner">기준 \ 지표</th>
             {cols.map((c) => head(c, "col"))}
-            <th className="plus" onClick={() => onAdd("col")} title="열 추가">+</th>
+            <th className="plus" onClick={() => onAdd("col")} title="지표 추가">+</th>
           </tr>
         </thead>
         <tbody>
@@ -326,7 +272,7 @@ function Grid({
             </tr>
           ))}
           <tr>
-            <th className="plus" onClick={() => onAdd("row")} title="행 추가">+</th>
+            <th className="plus" onClick={() => onAdd("row")} title="기준 추가">+</th>
             {cols.map((c) => <td key={c.id} className="void" />)}
             <td className="void" />
           </tr>

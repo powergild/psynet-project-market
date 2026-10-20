@@ -7,6 +7,7 @@
 
 import Anthropic from "@anthropic-ai/sdk";
 import { supabase } from "@/lib/supabase";
+import { colFormat, type AxisFormat } from "@/lib/axes";
 
 export type AxisRef = {
   id: string;
@@ -41,7 +42,11 @@ function hash(s: string): number {
 }
 export function fallbackValue(row: AxisRef, col: AxisRef): string {
   const h = hash(comboKey(row, col));
-  const m = h % 100;
+  const fmt = colFormat(col.name);
+  if (fmt === "pct") return ((h % 700) / 10 + 8).toFixed(1) + "%";
+  if (fmt === "int") return String((h % 38) + 3);
+  if (fmt === "dec") return ((h % 290) / 100 + 0.45).toFixed(2);
+  const m = h % 100;                       // 단위 미정 축
   if (m < 8) return "—";
   if (m < 62) return ((h % 780) / 10 + 2.1).toFixed(1) + "%";
   if (m < 85) return ((h % 420) / 100 + 0.31).toFixed(2);
@@ -102,9 +107,10 @@ const SYSTEM = `너는 스포츠 데이터 분석 엔진이다. "행 축 × 열 
 거의 모든 셀에는 숫자가 나와야 한다.
 
 출력 형식(엄격히 지킬 것):
-- 비율·확률 → "62.4%" (소수 1자리 + %)
-- 기대값·지수 → "1.73" (소수 2자리)
-- 횟수·개수 → "23" (정수)
+각 항목에 요구 단위가 붙어 있다. **반드시 그 단위로 답하라.**
+- (%) → "62.4%"  소수 1자리 + %
+- (소수) → "1.73"  소수 2자리, % 금지
+- (정수) → "23"  정수, % 금지
 - "—"는 **의미 자체가 성립하지 않을 때만** 쓴다. 예: 야구 지표(안타·도루) × 축구 지표(유효슈팅)처럼
   종목이 달라 교차가 무의미한 경우. 이 경우는 전체의 10% 미만이어야 한다.
 
@@ -122,15 +128,22 @@ const SYSTEM = `너는 스포츠 데이터 분석 엔진이다. "행 축 × 열 
 입력의 각 항목 i를 그대로 돌려주고, cells 배열 길이는 입력 길이와 같아야 한다.`;
 
 
-/** 모델 응답 정규화 — 쉼표 나열·군더더기를 잘라 단일 값만 남긴다. */
-function sanitize(raw: string): string | null {
+/** 모델 응답 정규화 + 단위 강제. 형식이 어긋나면 null → 호출부가 폴백을 쓴다. */
+function coerce(raw: string, fmt: AxisFormat | null): string | null {
   let v = raw.trim();
   if (!v) return null;
-  if (v.includes("—") || v.includes("-—")) return "—";
-  v = v.split(/[,/]/)[0].trim();            // "1.82, 0.94" → "1.82"
-  const m = v.match(/^-?\d+(?:\.\d+)?\s*%?/);  // 숫자(+%)만 취한다
+  if (v.includes("—")) return "—";
+  v = v.split(/[,/]/)[0].trim();                     // "1.82, 0.94" → "1.82"
+  const m = v.match(/^-?\d+(?:\.\d+)?\s*%?/);
   if (!m) return null;
-  return m[0].replace(/\s+/g, "").slice(0, 10);
+  const tok = m[0].replace(/\s+/g, "");
+  const isPct = tok.endsWith("%");
+  const num = parseFloat(tok);
+  if (!isFinite(num)) return null;
+  if (!fmt) return tok.slice(0, 10);
+  if (fmt === "pct") return isPct ? num.toFixed(1) + "%" : null;
+  if (fmt === "int") return isPct ? null : String(Math.round(num));
+  return isPct ? null : num.toFixed(2);              // dec
 }
 
 async function aiCompute(reqs: CellRequest[], ctx: MatchContext): Promise<Map<number, string>> {
@@ -146,7 +159,9 @@ async function aiCompute(reqs: CellRequest[], ctx: MatchContext): Promise<Map<nu
     .map((r, i) => {
       const rn = r.row.name + (r.row.ctx ? ` [${r.row.ctx}]` : "");
       const cn = r.col.name + (r.col.ctx ? ` [${r.col.ctx}]` : "");
-      return `${i}. ${rn} × ${cn}`;
+      const f = colFormat(r.col.name);
+      const unit = f === "pct" ? "(%)" : f === "int" ? "(정수)" : f === "dec" ? "(소수)" : "";
+      return `${i}. ${rn} × ${cn} ${unit}`;
     })
     .join("\n");
 
@@ -163,7 +178,7 @@ async function aiCompute(reqs: CellRequest[], ctx: MatchContext): Promise<Map<nu
     const parsed = JSON.parse(text.text) as { cells: { i: number; value: string }[] };
     for (const cell of parsed.cells ?? []) {
       if (typeof cell.i === "number" && typeof cell.value === "string") {
-        const v = sanitize(cell.value);
+        const v = coerce(cell.value, colFormat(reqs[cell.i]?.col.name ?? ""));
         if (v) out.set(cell.i, v);
       }
     }
