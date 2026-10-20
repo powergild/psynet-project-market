@@ -93,29 +93,6 @@ button { font-family: inherit; }
 .badge.sched { background: var(--teal-soft); color: var(--teal-deep); }
 .badge.fin { background: #eef1f2; color: var(--ink-soft); }
 
-/* ── FAB ───────────────────────────────────────────── */
-.fab {
-  position: fixed; z-index: 40;
-  right: 16px; bottom: calc(20px + var(--safe-b));
-  width: 56px; height: 56px; border-radius: 50%;
-  border: none; background: var(--teal-deep); color: #fff;
-  box-shadow: 0 6px 18px rgba(0,0,0,.3);
-  display: grid; place-items: center; cursor: pointer;
-  touch-action: none;
-}
-.fab:active { transform: scale(1.06); }
-.fab.lit { animation: fabpulse 1.8s ease-in-out infinite; }
-.fab .dot {
-  position: absolute; top: -4px; right: -4px;
-  min-width: 20px; height: 20px; border-radius: 10px;
-  background: var(--amber); color: #231800;
-  font-size: 11px; font-weight: 700; display: grid; place-items: center; padding: 0 5px;
-}
-@keyframes fabpulse {
-  0%,100% { box-shadow: 0 6px 18px rgba(0,0,0,.3), 0 0 0 0 rgba(245,163,0,.5); }
-  50%     { box-shadow: 0 6px 18px rgba(0,0,0,.3), 0 0 0 12px rgba(245,163,0,0); }
-}
-
 /* ── 하단 시트 ─────────────────────────────────────── */
 .scrim {
   position: fixed; inset: 0; z-index: 45;
@@ -166,6 +143,53 @@ button { font-family: inherit; }
   background: var(--teal-soft); color: var(--teal-deep);
 }
 .chip.amber { background: #fdf0d8; color: var(--amber-deep); }
+
+
+/* ── 박스 메인(첫 화면) ─────────────────────────── */
+.ctxbtn {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 13px; font-weight: 600; color: #fff;
+  background: rgba(255,255,255,.12); border: 1px solid rgba(255,255,255,.18);
+  padding: 8px 11px; border-radius: 8px; min-height: 38px; cursor: pointer;
+  max-width: 62vw; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+}
+.ctxbtn .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--amber); flex: none; }
+.ctxbtn .caret { opacity: .7; font-size: 11px; }
+
+.statusline {
+  flex: none; padding: 9px 16px; font-size: 12px; font-weight: 600;
+  background: #fdf0d8; color: var(--amber-deep);
+  border-bottom: 1px solid var(--line);
+}
+.statusline.soft { background: #eef3f4; color: var(--ink-soft); font-weight: 500; }
+
+.boxmain {
+  flex: 1; overflow: auto; -webkit-overflow-scrolling: touch;
+  padding-bottom: 8px;
+}
+
+.actionbar {
+  flex: none; display: flex; gap: 8px;
+  padding: 10px 14px calc(10px + var(--safe-b));
+  background: var(--paper); border-top: 1px solid var(--line);
+}
+
+.btn.danger { border-color: #e4b4b1; color: var(--red); }
+
+/* 경기 선택 행 */
+.mrow {
+  display: flex; align-items: center; width: 100%;
+  padding: 14px 16px; min-height: 60px; text-align: left; cursor: pointer;
+  background: var(--paper); border: none; border-bottom: 1px solid #eef1f2;
+}
+.mrow:active { background: var(--teal-soft); }
+.mrow.on { background: #eef6f8; box-shadow: inset 3px 0 0 var(--teal-deep); }
+.mrow .mr-main { min-width: 0; }
+.mrow .mr-t {
+  display: flex; align-items: center; gap: 7px;
+  font-size: 15px; font-weight: 600; color: var(--ink);
+}
+.mrow .mr-s { font-size: 12px; color: var(--ink-soft); margin-top: 4px; }
 
 /* ── 격자 ──────────────────────────────────────────── */
 .gridwrap {
@@ -257,5 +281,5 @@ button { font-family: inherit; }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .gridwrap td.glow::after, .gridwrap td.skel, .fab.lit, .sheet, .scrim { animation: none; }
+  .gridwrap td.glow::after, .gridwrap td.skel, .sheet, .scrim { animation: none; }
 }
