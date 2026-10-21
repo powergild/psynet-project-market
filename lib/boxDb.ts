@@ -23,6 +23,16 @@ export async function recordGlow(
   cands: GlowCandidate[]
 ): Promise<void> {
   if (!picks.length) return;
+
+  // 축 id는 박스를 다시 만들 때마다 바뀐다 — unique 제약이 id 기준이라 같은 선언이 중복으로 쌓인다.
+  // 다시 분석하면 아직 채점되지 않은 선언은 갈아치운다. 채점된 선언은 건드리지 않는다.
+  await supabase
+    .from("glow_records")
+    .delete()
+    .eq("box_id", boxId)
+    .eq("match_id", matchId)
+    .eq("scored", false);
+
   const byId = new Map(cands.map((c) => [c.rowId + "|" + c.colId, c]));
   const rows = picks.map((p) => {
     const c = byId.get(p.rowId + "|" + p.colId);
