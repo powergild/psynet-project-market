@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { catalogFor, searchAxes, DEFAULT_ROWS, DEFAULT_COLS, type AxisDef, type AxisKind } from "@/lib/axes";
+import { catalogFor, searchAxes, DEFAULT_ROWS, DEFAULT_COLS, type AxisDef, type AxisKind, type Sport } from "@/lib/axes";
+import SetupSheet from "@/components/SetupSheet";
 import type { Match } from "@/lib/matches";
 
 type Axis = { id: string; ax: string | null; ctx: string | null; src: string | null };
@@ -24,6 +25,7 @@ const mkAxes = (names: string[], ctx: string | null): Axis[] =>
 export default function DataBox({ match = null }: { match?: Match | null }) {
   const matchId = match?.id ?? null;
   const scope = match ? `${match.home}·${match.away}` : null;
+  const sport = (match?.sport as Sport | undefined) ?? null;
 
   const [name] = useState(match ? `${match.home}·${match.away} 박스` : "내 박스");
   const [rows, setRows] = useState<Axis[]>([]);
@@ -33,6 +35,7 @@ export default function DataBox({ match = null }: { match?: Match | null }) {
   const [target, setTarget] = useState<Target>(null);
   const [q, setQ] = useState("");
   const [toast, setToast] = useState<string | null>(null);
+  const [setup, setSetup] = useState(false);      // 최초 진입 설문
   const toastT = useRef<ReturnType<typeof setTimeout> | null>(null);
   const ready = useRef(false);
 
@@ -101,13 +104,16 @@ export default function DataBox({ match = null }: { match?: Match | null }) {
       }
     } catch { /* 저장소 없어도 동작해야 한다 */ }
 
-    if (!restored) {
-      const rs = mkAxes(DEFAULT_ROWS, scope);
-      const cs = mkAxes(DEFAULT_COLS, scope);
-      setRows(rs); setCols(cs);
-      void compute(rs, cs);
-    }
-  }, [compute, scope, matchId]);
+    if (!restored) setSetup(true);               // 빈 격자 대신 설문부터
+  }, [matchId]);
+
+  /** 설문 결과(또는 기본값)로 첫 격자를 만든다. */
+  const start = useCallback((g: { rows: string[]; cols: string[] }) => {
+    const rs = mkAxes(g.rows, scope);
+    const cs = mkAxes(g.cols, scope);
+    setRows(rs); setCols(cs); setSetup(false);
+    void compute(rs, cs);
+  }, [compute, scope]);
 
   useEffect(() => {
     if (!rows.length) return;
@@ -138,8 +144,19 @@ export default function DataBox({ match = null }: { match?: Match | null }) {
     setTarget(null);
   };
 
-  const groups = target ? searchAxes(catalogFor(target.kind, match?.players), q) : [];
+  const groups = target ? searchAxes(catalogFor(target.kind, match?.players, sport), q) : [];
   const targetHasAxis = !!target && [...rows, ...cols].find((a) => a.id === target.id)?.ax;
+
+  if (setup) {
+    return (
+      <SetupSheet
+        sport={sport}
+        players={match?.players}
+        onDone={start}
+        onSkip={() => start({ rows: DEFAULT_ROWS, cols: DEFAULT_COLS })}
+      />
+    );
+  }
 
   return (
     <>
@@ -154,15 +171,14 @@ export default function DataBox({ match = null }: { match?: Match | null }) {
           onAdd={addBlank}
         />
         <p className="note">
-          <b>행</b>은 기준(팀·선수·환경·상황), <b>열</b>은 지표(기대값·기록)입니다.
-          셀은 “이 기준에서 이 지표가 얼마인가”로 읽습니다.
-          <br />헤더를 누르면 바꾸거나 지울 수 있고, <b>+</b>를 누르면 빈 칸이 생깁니다.
+          <b>행</b>=기준 · <b>열</b>=지표. 헤더를 누르면 바꾸거나 지울 수 있고, <b>+</b>는 빈 칸을 더합니다.
         </p>
       </div>
 
       <div className="actionbar">
+        <button className="btn" onClick={() => setSetup(true)} title="처음부터 다시 설정">다시 설정</button>
         <button className="btn grow" onClick={() => { void compute(rows, cols); }}>
-          전체 다시 계산
+          다시 계산
         </button>
         <button className="btn pri grow" onClick={() => say("저장했습니다.")}>저장</button>
       </div>
@@ -271,7 +287,7 @@ function Grid({
               <td className="void" />
             </tr>
           ))}
-          <tr>
+          <tr className="addrow">
             <th className="plus" onClick={() => onAdd("row")} title="기준 추가">+</th>
             {cols.map((c) => <td key={c.id} className="void" />)}
             <td className="void" />
