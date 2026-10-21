@@ -58,7 +58,22 @@ GitHub 저장소 **`powergild/psynet-project-market`** 는 **public** — 실명
 - 출력은 `output_config.format.json_schema`로 강제하고, 그 뒤에도 `coerce()`로 범위(5~95)를 다시 검증한다. 모델이 스키마를 지켜도 값이 터무니없을 수 있다.
 - **실패(`—`)는 캐시하지 않는다** — 캐시되면 재시도가 영영 막힌다.
 - 캐시 키는 `wr2:` 접두사. **단위 체계를 바꾸면 접두사를 올려야 한다** — 안 그러면 옛 단위 값이 캐시에서 그대로 서빙돼 수정이 무의미해진다(실제로 겪음).
-- 로컬 `.env.local`엔 `ANTHROPIC_API_KEY`가 없다 → **로컬은 전 셀이 `—`로 나오는 게 정상이다.** AI 실동작 확인은 프로덕션에서.
+### 산출 백엔드 — 구독(CLI) / 종량(API 키)
+
+| 환경 | 백엔드 | 조건 |
+|---|---|---|
+| 로컬 | **Claude Code CLI (구독)** | `.env.local`에 `CLAUDE_CLI=1` + Claude Code 설치됨 |
+| 프로덕션(Vercel) | **Anthropic SDK (API 키)** | `ANTHROPIC_API_KEY` |
+| 둘 다 없음 | 없음 | 전 셀 `—` + 재시도 배너 |
+
+`lib/cliEngine.ts`가 `claude -p --output-format json`을 자식 프로세스로 돌린다. `askJson()`이 두 백엔드를 가르고, **CLI가 있으면 CLI를 먼저 쓴다**(구독으로 돌리려고 만든 경로니까).
+
+- **프로덕션에선 안 돌아간다.** Vercel 서버리스에는 Claude Code가 없고 자식 프로세스도 못 띄운다. 상용 배포를 구독으로 돌리려면 서버를 직접 띄우는 수밖에 없고, 그건 개인 구독 약관과도 걸린다. 지금 구조는 **개발·테스트 비용을 구독으로 넘기는 용도**다.
+- CLI엔 **json_schema 강제가 없다.** 그냥 두면 제목·설명을 붙여 낸다(실제로 `# 스포츠 예측 엔진 - 결과`를 받았다). 그래서 `askJson()`이 CLI 경로에만 형식 지시 + 예시를 덧붙이고, `unfence()`가 펜스·머리말을 벗긴다.
+- cwd를 `tmpdir()`로 둔다 — 프로젝트 안에서 돌리면 이 CLAUDE.md가 통째로 딴려와 느려진다. `--system-prompt`로 기본 프롬프트도 갈아끼운다.
+- `child.stdin.end()`를 빠뜨리면 CLI가 **3초간 입력을 기다린다.**
+- `.cmd` 셔임 대신 `cli-wrapper.cjs`를 `node`로 직접 돌린다 — 셔임은 shell이 필요해서 개행·따옴표 든 인자가 깨진다.
+- 빠르지 않다. CLI 기동 비용 때문에 호출당 **10~60초**. 격자 전체를 한 번에 묶어 보내므로 감당할 만하다.
 
 ### 축 카탈로그 (`lib/axes.ts`)
 

@@ -12,6 +12,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { supabase } from "@/lib/supabase";
 import { NO_VALUE } from "@/lib/axes";
+import { cliEnabled, cliAskJson } from "@/lib/cliEngine";
 
 export type AxisRef = {
   id: string;
@@ -95,6 +96,8 @@ const CELL_SCHEMA = {
   additionalProperties: false,
 } as const;
 
+const CELL_EXAMPLE = `{"cells":[{"i":0,"winRate":58.4},{"i":1,"winRate":41.2}]}`;
+
 const SYSTEM = `너는 스포츠 예측 엔진이다. "기준 × 지표" 교차마다 **승률 하나**를 산출한다.
 
 읽는 법: 각 항목은 "기준 × 지표"다.
@@ -122,10 +125,43 @@ function coerce(n: number): string | null {
   return n.toFixed(1) + "%";
 }
 
+/**
+ * 모델에게 JSON 하나를 받는다. 백엔드는 CLI(구독) 우선, 없으면 SDK(API 키).
+ * 둘 다 없으면 null — 호출부가 "—"로 처리한다.
+ */
+async function askJson(
+  system: string, user: string, schema: Record<string, unknown>, example: string
+): Promise<string | null> {
+  if (cliEnabled()) {
+    // CLI엔 json_schema 강제가 없다 — 형식을 프롬프트로 못박아야 제목·설명을 붙여 낸다.
+    return cliAskJson(`${system}\n\n[출력 형식 — 반드시 지킬 것]\nJSON 객체 **하나만** 출력한다. 코드블록·제목·설명·머리말 전부 금지.\n첫 글자는 {, 마지막 글자는 } 여야 한다.\n예시: ${example}`, user);
+  }
+
+  const c = getClient();
+  if (!c) return null;
+  try {
+    const res = await c.messages.create({
+      model: "claude-haiku-4-5",
+      max_tokens: 2048,
+      system,
+      output_config: { format: { type: "json_schema", schema } },
+      messages: [{ role: "user", content: user }],
+    });
+    const text = res.content.find((b) => b.type === "text");
+    return text && text.type === "text" ? text.text : null;
+  } catch {
+    return null;
+  }
+}
+
+/** 산출 백엔드가 하나도 없으면 시도하지 않는다. */
+export function aiAvailable(): boolean {
+  return cliEnabled() || getClient() !== null;
+}
+
 async function aiCompute(reqs: CellRequest[], ctx: MatchContext): Promise<Map<number, string>> {
   const out = new Map<number, string>();
-  const c = getClient();
-  if (!c || !reqs.length) return out;
+  if (!reqs.length || !aiAvailable()) return out;
 
   const ctxLine = ctx
     ? `경기 맥락: ${ctx.sport} ${ctx.league} / ${ctx.home} vs ${ctx.away} (${ctx.status})`
@@ -139,24 +175,17 @@ async function aiCompute(reqs: CellRequest[], ctx: MatchContext): Promise<Map<nu
     })
     .join("\n");
 
+  const raw = await askJson(SYSTEM, `${ctxLine}\n\n교차 목록:\n${list}`, CELL_SCHEMA, CELL_EXAMPLE);
+  if (!raw) return out;
   try {
-    const res = await c.messages.create({
-      model: "claude-haiku-4-5",
-      max_tokens: 2048,
-      system: SYSTEM,
-      output_config: { format: { type: "json_schema", schema: CELL_SCHEMA } },
-      messages: [{ role: "user", content: `${ctxLine}\n\n교차 목록:\n${list}` }],
-    });
-    const text = res.content.find((b) => b.type === "text");
-    if (!text || text.type !== "text") return out;
-    const parsed = JSON.parse(text.text) as { cells: { i: number; winRate: number }[] };
+    const parsed = JSON.parse(raw) as { cells: { i: number; winRate: number }[] };
     for (const cell of parsed.cells ?? []) {
       if (typeof cell.i !== "number" || typeof cell.winRate !== "number") continue;
       const v = coerce(cell.winRate);
       if (v) out.set(cell.i, v);
     }
   } catch {
-    /* 조용히 폴백 */
+    /* 형식이 깨졌으면 산출 실패로 다룬다 */
   }
   return out;
 }
@@ -220,6 +249,9 @@ const GLOW_SCHEMA = {
   additionalProperties: false,
 } as const;
 
+const GLOW_EXAMPLE =
+  `{"picks":[{"i":0,"why":"후반 수비 붕괴 구간과 맞아떨어짐"}],"line":"홈 우위가 이 셀에서만 유지됨"}`;
+
 const GLOW_SYSTEM = `너는 경기 맥락 분석기다. 유저가 만든 격자의 셀 중에서
 **지금 이 경기에 특히 유효한 셀**만 골라낸다.
 
@@ -234,26 +266,17 @@ const GLOW_SYSTEM = `너는 경기 맥락 분석기다. 유저가 만든 격자�
 
 export async function analyzeGlow(cands: GlowCandidate[], ctx: MatchContext): Promise<GlowResult> {
   if (!cands.length) return { cells: [], line: "", ok: true };
-  const c = getClient();
   // 발광은 "지금 이 경기에 유효하다"는 판단이다. 판단을 못 했으면 못 했다고 해야 한다 —
   // 승률이 극단인 셀을 골라 빛내면 분석한 척이 되고, 그건 예측 선언으로 기록까지 된다.
-  if (!c || !ctx) return { cells: [], line: "", ok: false };
+  if (!ctx || !aiAvailable()) return { cells: [], line: "", ok: false };
 
   const list = cands.map((x, i) => `${i}. ${x.row} × ${x.col} = ${x.value}`).join("\n");
+  const user = `경기: ${ctx.sport} ${ctx.league} / ${ctx.home} vs ${ctx.away} (${ctx.status})\n\n격자:\n${list}`;
+
+  const raw = await askJson(GLOW_SYSTEM, user, GLOW_SCHEMA, GLOW_EXAMPLE);
+  if (!raw) return { cells: [], line: "", ok: false };
   try {
-    const res = await c.messages.create({
-      model: "claude-haiku-4-5",
-      max_tokens: 1024,
-      system: GLOW_SYSTEM,
-      output_config: { format: { type: "json_schema", schema: GLOW_SCHEMA } },
-      messages: [{
-        role: "user",
-        content: `경기: ${ctx.sport} ${ctx.league} / ${ctx.home} vs ${ctx.away} (${ctx.status})\n\n격자:\n${list}`,
-      }],
-    });
-    const text = res.content.find((b) => b.type === "text");
-    if (!text || text.type !== "text") return { cells: [], line: "", ok: false };
-    const parsed = JSON.parse(text.text) as { picks: { i: number; why: string }[]; line: string };
+    const parsed = JSON.parse(raw) as { picks: { i: number; why: string }[]; line: string };
     const cells = (parsed.picks ?? [])
       .filter((p) => cands[p.i])
       .slice(0, 3)
@@ -263,3 +286,4 @@ export async function analyzeGlow(cands: GlowCandidate[], ctx: MatchContext): Pr
     return { cells: [], line: "", ok: false };
   }
 }
+
