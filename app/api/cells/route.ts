@@ -18,9 +18,9 @@ export async function POST(req: NextRequest) {
   if (!pairs.length) {
     return NextResponse.json({ ok: true, cells: [] });
   }
-  // 한 번에 너무 많이 보내지 않도록 상한(기본 격자 8×4=32 기준 여유)
-  if (pairs.length > 64) {
-    return NextResponse.json({ ok: false, error: "한 번에 64칸까지만 계산합니다." }, { status: 400 });
+  // 한 번에 너무 많이 보내지 않도록 상한(격자가 화면을 채우므로 12행×8열 기준 여유)
+  if (pairs.length > 160) {
+    return NextResponse.json({ ok: false, error: "한 번에 160칸까지만 계산합니다." }, { status: 400 });
   }
 
   const valid: CellRequest[] = pairs.filter(

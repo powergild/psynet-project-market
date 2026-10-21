@@ -38,8 +38,10 @@ const ROW_DEF: Record<string, { sport: Sport | "all"; items: string[] }> = {
 /** 행 분류 목록 (초기 설문에서 쓴다) */
 export const ROW_CATEGORIES = Object.keys(ROW_DEF);
 
-/** 열 축 — 측정 지표. 지표마다 단위를 고정한다(AI가 맥락 따라 형식을 바꾸지 못하게). */
-export type AxisFormat = "dec" | "pct" | "int";
+// 열 축 — 측정 지표.
+// 셀에 들어가는 값은 지표의 원값이 아니라 **그 조건에서의 승률(%)** 이다.
+// 행(기준) × 열(지표)에 계산식이 적용된 결과가 승률이므로, 모든 셀의 단위는 하나다.
+export type AxisFormat = "dec" | "pct" | "int";   // 지표 자체의 성격(참고용)
 
 const COL_DEF: Record<string, { sport: Sport | "all"; metrics: Record<string, AxisFormat> }> = {
   "기대값":    { sport: "all", metrics: { "득점 기대값": "dec", "실점 기대값": "dec" } },
@@ -53,10 +55,13 @@ const FORMAT: Record<string, AxisFormat> = Object.fromEntries(
   Object.values(COL_DEF).flatMap((g) => Object.entries(g.metrics))
 );
 
-/** 지표 축의 고정 단위. 모르는 축이면 null. */
+/** 지표 축의 성격. 셀 값은 항상 승률(%)이므로 표시 단위가 아니라 프롬프트 힌트로만 쓴다. */
 export function colFormat(name: string): AxisFormat | null {
   return FORMAT[name] ?? null;
 }
+
+/** 셀 값의 단위 — 전 셀 공통. */
+export const CELL_UNIT = "승률(%)";
 
 function mk(name: string, category: string, kind: AxisKind, scope: AxisScope = "global"): AxisDef {
   return { name, category, kind, scope };
@@ -76,7 +81,8 @@ export const DEFAULT_ROWS = [
   "홈팀", "원정팀", "최근 5경기 폼", "상대 전적",
   "주전 공격수", "강수량", "휴식일 수", "선제골 여부",
 ];
-export const DEFAULT_COLS = ["득점 기대값", "실점 기대값", "유효슈팅", "역전 빈도"];
+// 설문을 건너뛰면 종목을 모른다 — 종목을 안 가리는 지표만 쓴다.
+export const DEFAULT_COLS = ["득점 기대값", "실점 기대값", "역전 빈도", "리드 유지율"];
 
 const fits = (s: Sport | "all", sport?: Sport | null) => s === "all" || !sport || s === sport;
 

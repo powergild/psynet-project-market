@@ -203,15 +203,13 @@ button { font-family: inherit; }
 .matchbar .mb-sc { margin-left: auto; flex: none; font-weight: 700; color: var(--ink); font-size: 13px; }
 
 /* ── 격자 ──────────────────────────────────────────── */
-/* 격자가 화면을 가득 채운다 — 열은 가로폭을 나눠 쓰고, 행은 남은 높이를 나눠 쓴다.
-   좁아지면(min-width 합 > 화면) 가로 스크롤로 넘어간다. */
+/* 격자는 화면에 들어가는 만큼 항목을 채운다(칸 크기는 고정). */
 .gridwrap {
   flex: 1; min-height: 0;
-  display: flex;                /* 표를 세로로 stretch — 남는 높이를 행들이 나눠 갖는다 */
   overflow: auto; -webkit-overflow-scrolling: touch;
   background: var(--paper); border-bottom: 1px solid var(--line-strong);
 }
-.gridwrap table { border-collapse: collapse; flex: 1; width: 100%; }
+.gridwrap table { border-collapse: collapse; }   /* 칸 크기는 고정 — 화면은 항목 수로 채운다 */
 .gridwrap th, .gridwrap td { border: 1px solid var(--line); padding: 0; }
 
 .gridwrap th {
@@ -236,7 +234,7 @@ button { font-family: inherit; }
 }
 
 .gridwrap td { text-align: center; min-width: 82px; }
-.gridwrap tbody tr { height: 46px; }        /* 하한 — 남는 높이는 행들이 나눠 갖는다 */
+.gridwrap tbody tr { height: 46px; }
 .gridwrap tr.addrow { height: 44px; }
 .gridwrap td .v { font-size: 14px; font-weight: 600; letter-spacing: -0.02em; }
 .gridwrap td.empty .v { color: var(--line-strong); font-weight: 400; }
@@ -325,3 +323,107 @@ button { font-family: inherit; }
 }
 .pick.big { flex: 1; min-width: 92px; font-size: 16px; padding: 18px 12px; }
 .pick:disabled { opacity: .35; cursor: default; }
+
+/* ── 업그레이드 배너 (F-15) ─────────────────────────── */
+.upbanner {
+  flex: none; display: flex; align-items: center; gap: 8px; width: 100%;
+  padding: 10px 16px; min-height: 42px; cursor: pointer; text-align: left;
+  font-size: 12.5px; font-weight: 600; color: var(--amber-deep);
+  background: #fdf0d8; border: none; border-bottom: 1px solid var(--line);
+}
+.upbanner .cost { margin-left: auto; font-weight: 700; }
+
+/* ── 잠긴 추천 행 (F-20) ───────────────────────────── */
+.ghostrow { cursor: pointer; }
+.ghostrow .ghosthead { color: var(--ink-soft); background: #f7f9fa; }
+.ghostrow .ghosthead .src { color: var(--amber-deep); font-weight: 600; }
+.ghostrow .ghostcell { background: #f7f9fa; }
+.ghostrow .ghostcell .v { color: var(--line-strong); filter: blur(1.5px); letter-spacing: 2px; }
+.ghostrow:active .ghostcell { background: var(--teal-soft); }
+
+/* ── 액션바 SCO ─────────────────────────────────────── */
+.scobadge {
+  font-size: 12px; font-weight: 700; color: var(--teal-deep);
+  background: var(--teal-soft); padding: 7px 10px; border-radius: 8px;
+}
+.actionbar .spacer { margin-left: auto; }
+
+/* ── 계산식 패널 (F-23) ─────────────────────────────── */
+.sheet.fsheet, .sheet.rsheet { height: auto; max-height: 86dvh; }
+.sheet .fnow {
+  flex: none; display: flex; align-items: baseline; gap: 10px;
+  padding: 6px 16px 12px; border-bottom: 1px solid var(--line);
+}
+.sheet .fnow .fv { font-size: 30px; font-weight: 700; color: var(--teal-deep); letter-spacing: -0.02em; }
+.sheet .fnow .fbase { font-size: 12px; color: var(--ink-soft); }
+.frow {
+  display: flex; align-items: center; gap: 12px;
+  padding: 10px 16px; min-height: 44px;
+}
+.frow .fn { font-size: 13px; font-weight: 600; width: 104px; flex: none; }
+.frow input[type="range"] { flex: 1; accent-color: var(--teal-deep); min-width: 0; }
+.frow .fw { font-size: 13px; color: var(--ink-soft); width: 28px; text-align: right; flex: none; }
+
+/* ── 발광 셀 추천 (F-22) ───────────────────────────── */
+.reccard {
+  margin: 10px 14px; padding: 14px;
+  background: var(--paper); border: 1px solid var(--line-strong); border-radius: 10px;
+}
+.reccard .rc-t { font-size: 15px; font-weight: 600; }
+.reccard .rc-s { font-size: 12px; color: var(--ink-soft); margin-top: 6px; line-height: 1.5; }
+
+/* ── SCO 차감 확인 ──────────────────────────────────── */
+.confirm {
+  position: fixed; left: 50%; top: 50%; transform: translate(-50%,-50%); z-index: 60;
+  width: min(340px, calc(100vw - 48px));
+  background: var(--paper); border-radius: 14px; padding: 20px 18px 14px;
+  box-shadow: 0 18px 48px rgba(10,16,20,.3);
+}
+.confirm .cmsg { margin: 0; font-size: 15px; font-weight: 600; line-height: 1.5; }
+.confirm .ccost { margin: 10px 0 16px; font-size: 12.5px; color: var(--amber-deep); font-weight: 600; }
+.confirm .crow { display: flex; gap: 8px; }
+
+/* ── 정렬 탭 / 마켓 카드 ───────────────────────────── */
+.tabs {
+  flex: none; display: flex; gap: 6px; padding: 10px 14px;
+  background: var(--paper); border-bottom: 1px solid var(--line);
+}
+.tab {
+  font-size: 13px; font-weight: 600; color: var(--ink-soft);
+  background: #f2f5f6; border: 1px solid var(--line); border-radius: 999px;
+  padding: 8px 14px; min-height: 38px; cursor: pointer;
+}
+.tab.on { background: var(--teal-deep); border-color: var(--teal-deep); color: #fff; }
+
+.boxmain.scrolly { overflow: auto; -webkit-overflow-scrolling: touch; }
+
+.bcard {
+  display: block; text-decoration: none; color: inherit;
+  background: var(--paper); border-bottom: 1px solid #eef1f2; padding: 14px 16px;
+}
+.bcard:active { background: var(--teal-soft); }
+.bcard .bc-h { display: flex; align-items: center; gap: 8px; }
+.bcard .bc-n { font-size: 15px; font-weight: 600; }
+.bcard .bc-by { font-size: 12px; color: var(--ink-soft); margin-top: 5px; }
+.bcard .bc-ax { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.axpill {
+  font-size: 11px; font-weight: 600; color: var(--ink-soft);
+  background: #f2f5f6; border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px;
+}
+.bcard .bc-f { display: flex; margin-top: 10px; }
+.bcard .bc-f .spacer { margin-right: auto; }
+.bcard .price { font-size: 12.5px; font-weight: 700; color: var(--teal-deep); }
+
+/* ── SCO 지갑 ──────────────────────────────────────── */
+.wallethead {
+  flex: none; display: flex; align-items: baseline; gap: 6px;
+  padding: 22px 16px; background: var(--paper); border-bottom: 1px solid var(--line);
+}
+.wallethead .wh-n { font-size: 34px; font-weight: 700; color: var(--teal-deep); letter-spacing: -0.02em; }
+.wallethead .wh-u { font-size: 14px; font-weight: 600; color: var(--ink-soft); }
+.logrow {
+  display: flex; align-items: center; gap: 10px;
+  padding: 14px 16px; background: var(--paper); border-bottom: 1px solid #eef1f2;
+}
+.logrow .lg-m { font-size: 14px; min-width: 0; }
+.logrow .lg-d { margin-left: auto; font-size: 14px; font-weight: 700; color: var(--red); }
