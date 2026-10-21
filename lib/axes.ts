@@ -63,6 +63,9 @@ export function colFormat(name: string): AxisFormat | null {
 /** 셀 값의 단위 — 전 셀 공통. */
 export const CELL_UNIT = "승률(%)";
 
+/** 산출 실패 표기. 지어낸 숫자보다 빈 값이 낫다 — 유저는 이 값으로 판단을 한다. */
+export const NO_VALUE = "—";
+
 function mk(name: string, category: string, kind: AxisKind, scope: AxisScope = "global"): AxisDef {
   return { name, category, kind, scope };
 }

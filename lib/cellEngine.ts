@@ -5,11 +5,13 @@
 // 지표마다 단위가 달라지면 격자를 가로세로로 읽을 수 없다. 단위는 하나여야 한다.
 //
 // 설계 원칙(기존 서비스에서 확립한 하이브리드 패턴과 동일):
-//   캐시 우선 → 없으면 AI(Haiku) 배치 산출 → 키/크레딧 없거나 실패하면 결정적 폴백.
-// AI가 죽어도 격자는 항상 채워진다. 서비스가 멈추지 않는 것이 우선.
+//   캐시 우선 → 없으면 AI(Haiku) 배치 산출 → 실패하면 그 셀은 "—".
+// 산출하지 못한 칸을 그럴듯한 숫자로 메우지 않는다. 유저는 이 값으로 예측 판단을 하므로,
+// 계산된 값과 지어낸 값이 구분되지 않는 순간 격자 전체를 믿을 수 없게 된다.
 
 import Anthropic from "@anthropic-ai/sdk";
 import { supabase } from "@/lib/supabase";
+import { NO_VALUE } from "@/lib/axes";
 
 export type AxisRef = {
   id: string;
@@ -19,7 +21,7 @@ export type AxisRef = {
 };
 
 export type CellRequest = { row: AxisRef; col: AxisRef };
-export type CellResult = { rowId: string; colId: string; value: string; from: "cache" | "ai" | "fallback" };
+export type CellResult = { rowId: string; colId: string; value: string; from: "cache" | "ai" | "failed" };
 
 export type MatchContext = {
   sport: string;
@@ -36,18 +38,10 @@ export function comboKey(row: AxisRef, col: AxisRef): string {
   return `wr2:${r} :: ${c}`;
 }
 
-// ── 결정적 폴백 ────────────────────────────────────────────
-// 같은 조합이면 항상 같은 값. AI 없이도 격자가 일관되게 보인다.
 function hash(s: string): number {
   let h = 7;
   for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
   return h;
-}
-
-/** 승률 폴백 — 28.0% ~ 76.0%. 극단값은 믿기 어려우므로 만들지 않는다. */
-export function fallbackValue(row: AxisRef, col: AxisRef): string {
-  const h = hash(comboKey(row, col));
-  return (28 + (h % 481) / 10).toFixed(1) + "%";
 }
 
 /** 승률 문자열 → 숫자. 못 읽으면 null. */
@@ -189,9 +183,9 @@ export async function computeCells(reqs: CellRequest[], ctx: MatchContext): Prom
 
     const pos = missIdx.indexOf(i);
     const ai = pos >= 0 ? aiVals.get(pos) : undefined;
-    const value = ai ?? fallbackValue(r.row, r.col);
-    fresh.push({ combo_key: keys[i], value });
-    return { rowId: r.row.id, colId: r.col.id, value, from: ai ? "ai" : "fallback" };
+    if (!ai) return { rowId: r.row.id, colId: r.col.id, value: NO_VALUE, from: "failed" };
+    fresh.push({ combo_key: keys[i], value: ai });   // 실패는 캐시하지 않는다 — 재시도가 막힌다
+    return { rowId: r.row.id, colId: r.col.id, value: ai, from: "ai" };
   });
 
   const dedup = new Map(fresh.map((f) => [f.combo_key, f]));
@@ -206,7 +200,7 @@ export async function computeCells(reqs: CellRequest[], ctx: MatchContext): Prom
 
 export type GlowCandidate = { rowId: string; colId: string; row: string; col: string; value: string };
 export type GlowPick = { rowId: string; colId: string; why: string };
-export type GlowResult = { cells: GlowPick[]; line: string };
+export type GlowResult = { cells: GlowPick[]; line: string; ok: boolean };
 
 const GLOW_SCHEMA = {
   type: "object",
@@ -238,34 +232,12 @@ const GLOW_SYSTEM = `너는 경기 맥락 분석기다. 유저가 만든 격자�
 - line은 격자 전체에 대한 요약 한 문장(25자 내외).
 - 맞는 셀이 하나도 없으면 picks를 빈 배열로 두어라. 억지로 고르지 마라.`;
 
-/** 폴백 발광 — AI가 없어도 경기마다 같은 셀이 일관되게 빛난다. */
-function fallbackGlow(cands: GlowCandidate[], ctx: MatchContext): GlowResult {
-  const seed = hash((ctx?.home ?? "") + (ctx?.away ?? "") + cands.map((c) => c.rowId + c.colId).join());
-  // 승률이 50에서 가장 먼 셀 = 주장이 가장 강한 셀
-  const ranked = [...cands].sort(
-    (a, b) => Math.abs((pct(b.value) ?? 50) - 50) - Math.abs((pct(a.value) ?? 50) - 50)
-  );
-  const n = Math.min(ranked.length, 1 + (seed % 3));
-  const LINES = [
-    "이 조합이 최근 흐름을 설명함",
-    "후반 수비 붕괴 구간과 맞아떨어짐",
-    "홈 우위가 이 셀에서만 유지됨",
-    "교체 타이밍이 이 지표를 흔듦",
-  ];
-  return {
-    cells: ranked.slice(0, n).map((c) => ({
-      rowId: c.rowId,
-      colId: c.colId,
-      why: `${c.col} 관점에서 ${c.row}의 우위가 뚜렷함`,
-    })),
-    line: LINES[seed % LINES.length],
-  };
-}
-
 export async function analyzeGlow(cands: GlowCandidate[], ctx: MatchContext): Promise<GlowResult> {
-  if (!cands.length) return { cells: [], line: "" };
+  if (!cands.length) return { cells: [], line: "", ok: true };
   const c = getClient();
-  if (!c || !ctx) return fallbackGlow(cands, ctx);
+  // 발광은 "지금 이 경기에 유효하다"는 판단이다. 판단을 못 했으면 못 했다고 해야 한다 —
+  // 승률이 극단인 셀을 골라 빛내면 분석한 척이 되고, 그건 예측 선언으로 기록까지 된다.
+  if (!c || !ctx) return { cells: [], line: "", ok: false };
 
   const list = cands.map((x, i) => `${i}. ${x.row} × ${x.col} = ${x.value}`).join("\n");
   try {
@@ -280,14 +252,14 @@ export async function analyzeGlow(cands: GlowCandidate[], ctx: MatchContext): Pr
       }],
     });
     const text = res.content.find((b) => b.type === "text");
-    if (!text || text.type !== "text") return fallbackGlow(cands, ctx);
+    if (!text || text.type !== "text") return { cells: [], line: "", ok: false };
     const parsed = JSON.parse(text.text) as { picks: { i: number; why: string }[]; line: string };
     const cells = (parsed.picks ?? [])
       .filter((p) => cands[p.i])
       .slice(0, 3)
       .map((p) => ({ rowId: cands[p.i].rowId, colId: cands[p.i].colId, why: p.why }));
-    return { cells, line: parsed.line || fallbackGlow(cands, ctx).line };
+    return { cells, line: parsed.line ?? "", ok: true };
   } catch {
-    return fallbackGlow(cands, ctx);
+    return { cells: [], line: "", ok: false };
   }
 }

@@ -38,7 +38,7 @@ export async function POST(req: NextRequest) {
 
   try {
     if (!cells.length) {
-      return NextResponse.json({ ok: true, cells: [], line: "", record: await boxRecord(boxId) });
+      return NextResponse.json({ ok: true, analyzed: true, cells: [], line: "", record: await boxRecord(boxId) });
     }
 
     const glow = await analyzeGlow(cells, ctx);
@@ -55,6 +55,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({
       ok: true,
+      analyzed: glow.ok,          // false = 분석 자체를 못 했다(빈 결과와 구분해야 한다)
       cells: glow.cells,
       line: glow.line,
       record: await boxRecord(boxId),

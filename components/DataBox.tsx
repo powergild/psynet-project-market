@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  catalogFor, searchAxes, DEFAULT_ROWS, DEFAULT_COLS,
+  catalogFor, searchAxes, DEFAULT_ROWS, DEFAULT_COLS, NO_VALUE,
   type AxisDef, type AxisKind, type Sport,
 } from "@/lib/axes";
 import { recommendAxis, recommendForCell, type AxisOffer } from "@/lib/market";
@@ -12,7 +12,7 @@ import type { Match } from "@/lib/matches";
 
 type Axis = { id: string; ax: string | null; ctx: string | null; src: string | null };
 type Target = { kind: AxisKind; id: string } | null;
-type Glow = { cells: { rowId: string; colId: string; why: string }[]; line: string };
+type Glow = { cells: { rowId: string; colId: string; why: string }[]; line: string; ok: boolean };
 type Term = { n: string; w: number };
 type Formula = { rowId: string; colId: string; title: string; base: string; terms: Term[]; base0: number };
 type CellRec = { rowId: string; colId: string; row: string; col: string; offer: AxisOffer & { hit: number } };
@@ -91,7 +91,9 @@ export default function DataBox({ match = null }: { match?: Match | null }) {
       if (!pairs.length) return;
       setPending(new Set(pairs.map((p) => ck(p.row.id, p.col.id))));
 
-      let out: { rowId: string; colId: string; value: string }[] = [];
+      // 서버가 통째로 실패해도 칸을 비워두지 않는다 — "—"여야 재시도 대상으로 집계된다.
+      const dash = pairs.map((p) => ({ rowId: p.row.id, colId: p.col.id, value: NO_VALUE }));
+      let out: { rowId: string; colId: string; value: string }[] = dash;
       try {
         const res = await fetch("/api/cells", {
           method: "POST",
@@ -105,8 +107,8 @@ export default function DataBox({ match = null }: { match?: Match | null }) {
           }),
         });
         const d = await res.json();
-        if (d.ok) out = d.cells; else say("계산에 실패했습니다.");
-      } catch { say("인터넷 연결을 확인해주세요."); }
+        if (d.ok) out = d.cells;
+      } catch { /* 배너가 안내한다 — 토스트는 사라져서 재시도 경로가 안 남는다 */ }
 
       const step = out.length > 12 ? 18 : 55;   // 순차로 확정되는 과정 자체가 제품 설명이 된다
       for (const cell of out) {
@@ -193,7 +195,7 @@ export default function DataBox({ match = null }: { match?: Match | null }) {
     for (const r of rows) {
       for (const c of cols) {
         const v = cells[ck(r.id, c.id)];
-        if (!r.ax || !c.ax || !v || v === "—") continue;
+        if (!r.ax || !c.ax || !v || v === NO_VALUE) continue;
         cands.push({ rowId: r.id, colId: c.id, row: r.ax, col: c.ax, value: v });
       }
     }
@@ -207,13 +209,13 @@ export default function DataBox({ match = null }: { match?: Match | null }) {
       });
       const d = await res.json();
       if (d.ok) {
-        setGlow({ cells: d.cells ?? [], line: d.line ?? "" });
+        setGlow({ cells: d.cells ?? [], line: d.line ?? "", ok: d.analyzed !== false });
         setRate(d.record?.rate ?? null);
         // F-20 격자 하단 추천 행 — 내가 아직 안 가진 축 하나
         const mine = [...rows, ...cols].map((a) => a.ax).filter(Boolean) as string[];
         setGhost(recommendAxis(mine, matchId));
-      } else say("발광 분석에 실패했습니다.");
-    } catch { say("발광 분석에 실패했습니다."); }
+      } else setGlow({ cells: [], line: "", ok: false });
+    } catch { setGlow({ cells: [], line: "", ok: false }); }
     setGlowing(false);
   }, [matchId, rows, cols, cells, pending.size, name, say]);
 
@@ -308,7 +310,7 @@ export default function DataBox({ match = null }: { match?: Match | null }) {
   // ── F-23 계산식 패널 ─────────────────────────────
   const openFormula = (r: Axis, c: Axis) => {
     const base = cells[ck(r.id, c.id)];
-    if (!base || base === "—" || !r.ax || !c.ax) return;
+    if (!base || base === NO_VALUE || !r.ax || !c.ax) return;
     const terms: Term[] = [
       { n: r.ax, w: 55 }, { n: c.ax, w: 45 },
       { n: "최근 5경기 가중", w: 30 }, { n: "표본 보정", w: 20 },
@@ -338,6 +340,13 @@ export default function DataBox({ match = null }: { match?: Match | null }) {
     openFormula(r, c);
   };
 
+  // 계산하지 못한 칸. 값이 "—"면 산출 실패다 — 지어낸 숫자로 메우지 않으므로 여기서 다시 잡는다.
+  const failedCount = rows.reduce(
+    (n, r) => n + cols.filter((c) => r.ax && c.ax && cells[ck(r.id, c.id)] === NO_VALUE).length, 0
+  );
+  const retryFailed = () =>
+    void compute(rows, cols, (r, c) => cells[ck(r.id, c.id)] === NO_VALUE);
+
   const groups = target ? searchAxes(catalogFor(target.kind, match?.players, sport), q) : [];
   const targetHasAxis = !!target && [...rows, ...cols].find((a) => a.id === target.id)?.ax;
   const glowWhy = (rowId: string, colId: string) =>
@@ -358,11 +367,18 @@ export default function DataBox({ match = null }: { match?: Match | null }) {
     <>
       {pending.size > 0 && <div className="statusline">셀을 채우는 중 · {pending.size}칸 남음</div>}
       {!pending.size && glowing && <div className="statusline">이 경기를 읽는 중…</div>}
+      {!pending.size && failedCount > 0 && (
+        <button className="retrybar" onClick={retryFailed}>
+          {failedCount}칸을 계산하지 못했습니다 <span className="cost">다시 시도</span>
+        </button>
+      )}
       {!pending.size && !glowing && glow && (
         <div className={`statusline${glow.cells.length ? "" : " soft"}`}>
-          {glow.cells.length
-            ? `${glow.cells.length}개 셀이 반응했습니다 · ${glow.line}`
-            : "이 경기와 맞는 축이 아직 없습니다."}
+          {!glow.ok
+            ? "이 경기를 읽지 못했습니다. 잠시 후 다시 시도해주세요."
+            : glow.cells.length
+              ? `${glow.cells.length}개 셀이 반응했습니다 · ${glow.line}`
+              : "이 경기와 맞는 축이 아직 없습니다."}
         </div>
       )}
 
@@ -593,10 +609,10 @@ function Grid({
               const v = cells[k];
               if (v === undefined) return <td key={c.id} className="void" />;
               const lit = glowIds.includes(k);
-              const cls = [v === "—" ? "empty" : "", lit ? "glow" : "", dim && !lit ? "dim" : ""]
+              const cls = [v === NO_VALUE ? "empty" : "", lit ? "glow" : "", dim && !lit ? "dim" : ""]
                 .filter(Boolean).join(" ");
               return (
-                <td key={c.id} className={cls} onClick={() => onCell(r, c)}>
+                <td key={c.id} className={cls} onClick={() => v !== NO_VALUE && onCell(r, c)}>
                   <span className="v num">{v}</span>
                 </td>
               );
