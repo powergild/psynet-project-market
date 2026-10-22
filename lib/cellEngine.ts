@@ -264,11 +264,45 @@ const GLOW_SYSTEM = `너는 경기 맥락 분석기다. 유저가 만든 격자�
 - line은 격자 전체에 대한 요약 한 문장(25자 내외).
 - 맞는 셀이 하나도 없으면 picks를 빈 배열로 두어라. 억지로 고르지 마라.`;
 
+/**
+ * 발광 캐시 키.
+ * 같은 경기·같은 상황·같은 격자면 분석 결과도 같다. 예열된 기본 격자는
+ * 유저끼리 똑같으므로, 첫 사람만 AI를 타고 나머지는 캐시를 읽는다.
+ * 경기 상황(status)이 바뀜면 키가 바뀜다 — 득점 후에도 옮 분석을 보여주면 안 된다.
+ */
+function glowKey(cands: GlowCandidate[], ctx: MatchContext): string {
+  const sig = cands
+    .map((c) => `${c.row}\u00d7${c.col}=${c.value}`)
+    .sort()
+    .join("|");
+  return `glow2:${ctx?.home ?? ""}-${ctx?.away ?? ""}|${ctx?.status ?? ""}|${hash(sig)}`;
+}
+
 export async function analyzeGlow(cands: GlowCandidate[], ctx: MatchContext): Promise<GlowResult> {
   if (!cands.length) return { cells: [], line: "", ok: true };
   // 발광은 "지금 이 경기에 유효하다"는 판단이다. 판단을 못 했으면 못 했다고 해야 한다 —
   // 승률이 극단인 셀을 골라 빛내면 분석한 척이 되고, 그건 예측 선언으로 기록까지 된다.
-  if (!ctx || !aiAvailable()) return { cells: [], line: "", ok: false };
+  if (!ctx) return { cells: [], line: "", ok: false };
+
+  // 캐시 우선 — 분석은 셀 산출보다 비싸고, 같은 격자면 답도 같다.
+  const gkey = glowKey(cands, ctx);
+  const hit = await readCache([gkey]);
+  const cachedGlow = hit.get(gkey);
+  if (cachedGlow) {
+    try {
+      // 캐시는 축 **이름**으로 저장된다. id는 사람마다 다르므로 읽을 때 지금 격자의 id로 돌려놓는다.
+      const g = JSON.parse(cachedGlow) as { picks: { row: string; col: string; why: string }[]; line: string };
+      const byName = new Map(cands.map((c) => [c.row + " " + c.col, c]));
+      const cells = (g.picks ?? [])
+        .map((p) => {
+          const c = byName.get(p.row + " " + p.col);
+          return c ? { rowId: c.rowId, colId: c.colId, why: p.why } : null;
+        })
+        .filter((x): x is GlowPick => x !== null);
+      if (cells.length) return { cells, line: g.line ?? "", ok: true };
+    } catch { /* 깨졌으면 다시 산출한다 */ }
+  }
+  if (!aiAvailable()) return { cells: [], line: "", ok: false };
 
   const list = cands.map((x, i) => `${i}. ${x.row} × ${x.col} = ${x.value}`).join("\n");
   const user = `경기: ${ctx.sport} ${ctx.league} / ${ctx.home} vs ${ctx.away} (${ctx.status})\n\n격자:\n${list}`;
@@ -281,7 +315,14 @@ export async function analyzeGlow(cands: GlowCandidate[], ctx: MatchContext): Pr
       .filter((p) => cands[p.i])
       .slice(0, 3)
       .map((p) => ({ rowId: cands[p.i].rowId, colId: cands[p.i].colId, why: p.why }));
-    return { cells, line: parsed.line ?? "", ok: true };
+    const out = { cells, line: parsed.line ?? "", ok: true };
+    const byId = new Map(cands.map((c) => [c.rowId + " " + c.colId, c]));
+    const picks = cells.map((p) => {
+      const c = byId.get(p.rowId + " " + p.colId);
+      return { row: c?.row ?? "", col: c?.col ?? "", why: p.why };
+    });
+    await writeCache([{ combo_key: gkey, value: JSON.stringify({ picks, line: out.line }) }]);
+    return out;
   } catch {
     return { cells: [], line: "", ok: false };
   }
