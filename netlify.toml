@@ -1,0 +1,10 @@
+# Netlify 배포 설정.
+# Vercel Hobby가 Fast Origin Transfer 한도로 정지돼(2026-10-24) 옮겨온 것.
+# 페이지는 전부 정적/ISR이라 여기서도 오리진을 거의 타지 않는다.
+
+[build]
+  command = "npm run build"
+  publish = ".next"
+
+[[plugins]]
+  package = "@netlify/plugin-nextjs"

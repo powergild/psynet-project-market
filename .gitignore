@@ -10,3 +10,6 @@ tsconfig.tsbuildinfo
 # 마스킹/필터링 전 원본 — 87건 전체(제외 대상 8건 포함, PM 실명 미마스킹).
 # 공개 저장소에 절대 커밋 금지. data/projects.json이 이 소스의 필터링된 산출물.
 source-data
+
+# Local Netlify folder
+.netlify
