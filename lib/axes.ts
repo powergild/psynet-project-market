@@ -1,8 +1,10 @@
 // 축 카탈로그.
-// 행과 열은 성격이 다르다 — 분류체계를 분리한다.
-//   행(row) = 주체·조건  "무엇을 기준으로 보는가"  (팀·선수·환경·상황)
-//   열(col) = 측정 지표  "무엇을 재는가"          (기대값·기록·흐름)
-// 셀은 "이 조건에서 이 지표가 얼마인가"로 읽힌다. 뒤집힌 조합(득점기대값 × 홈팀)은 만들 수 없다.
+// 축은 세 갈래다 — 스포츠조각의 "조건 + 특성 + 선수"를 격자 2축에 담기 위한 분해다.
+//   조건(condition) = 박스 전체에 걸리는 맥락  (비 오는 날, 추격 중, 라이벌전 …)
+//   행(row)         = 주체                     (선수·팀·팀 특성·경기 구도)
+//   열(col)         = 특성/지표                (득점·도움·선방 … 측정하는 것)
+// 셀은 "이 조건에서, 이 주체가, 이 특성 관점으로 유리할 확률"이다.
+// 날씨·상황을 행에 두면 선수와 동시에 세울 수 없어서 조건으로 끌어올렸다.
 // 순수 데이터/헬퍼만 — supabase import 금지(클라이언트에서도 쓴다).
 
 export type AxisKind = "row" | "col";
@@ -32,8 +34,24 @@ const ROW_DEF: Record<string, { sport: Sport | "all"; items: string[] }> = {
   "경기 구도": { sport: "all", items: ["홈팀", "원정팀", "최근 5경기 폼", "상대 전적", "선제골 여부", "후반 교체 타이밍"] },
   "팀":       { sport: "all", items: SPORTS.flatMap((s) => TEAMS[s]) },
   "팀 특성":  { sport: "all", items: ["주전 공격수", "주전 골키퍼", "벤치 뎁스", "감독 성향", "핵심 선수 결장", "팀 평균 연령"] },
-  "경기 환경": { sport: "all", items: ["강수량", "기온", "홈 관중 수", "잔디 상태", "이동 거리", "휴식일 수"] },
+  "팀 상태":  { sport: "all", items: ["이동 거리", "휴식일 수", "연전 여부"] },
 };
+
+/* ── 조건 ──────────────────────────────────
+   박스 전체에 걸린다. 조각의 "조건"에 해당하고, 셀 값의 전제가 된다.
+   "비 · 음바페 × 득점 기대값" = 비 올 때 음바페가 득점 관점에서 유리할 확률. */
+export type ConditionGroup = { category: string; items: string[] };
+
+export const CONDITIONS: ConditionGroup[] = [
+  { category: "날씨", items: ["비", "눈", "폭염", "강풍", "한파", "맑음"] },
+  { category: "상황", items: ["추격 중", "리드 중", "라이벌전", "원정 3연전", "주중 경기", "연장 승부"] },
+  { category: "구장", items: ["잔디 불량", "만원 관중", "무관중", "고지대"] },
+];
+
+export const CONDITION_NAMES: string[] = CONDITIONS.flatMap((g) => g.items);
+
+/** 조건 없음 = 기본. 예열해 둔 캐시가 이 상태를 쓴다. */
+export const NO_CONDITION = "";
 
 /** 행 분류 목록 (초기 설문에서 쓴다) */
 export const ROW_CATEGORIES = Object.keys(ROW_DEF);
@@ -80,9 +98,10 @@ export const ALL_AXES: AxisDef[] = [...ROW_AXES, ...COL_AXES];
 export const AXIS_NAMES = ALL_AXES.map((a) => a.name);
 
 /** 설문을 건너뛸 때 쓰는 기본 격자 8행 × 4열 */
+// 행은 주체다 — 날씨는 조건으로 올라갔으므로 기본 행에서 뺀다.
 export const DEFAULT_ROWS = [
   "홈팀", "원정팀", "최근 5경기 폼", "상대 전적",
-  "주전 공격수", "강수량", "휴식일 수", "선제골 여부",
+  "주전 공격수", "주전 골키퍼", "휴식일 수", "선제골 여부",
 ];
 // 설문을 건너뛰면 종목을 모른다 — 종목을 안 가리는 지표만 쓴다.
 export const DEFAULT_COLS = ["득점 기대값", "실점 기대값", "역전 빈도", "리드 유지율"];
@@ -94,6 +113,16 @@ const fits = (s: Sport | "all", sport?: Sport | null) => s === "all" || !sport |
  * 선수는 주체이므로 행 축에서만, 그리고 경기 안에서만 고를 수 있다(F-17).
  * sport가 주어지면 그 종목에 맞는 지표·팀만 보여준다.
  */
+/** 메인에서도 고를 수 있는 선수. 조각은 "아무 팀에서나 관심 있는 선수"를 고르는 것이므로
+ *  경기 밖에서도 주체로 세울 수 있어야 한다. 경기 안에서는 그 경기 선수가 우선 노출된다. */
+let GLOBAL_PLAYERS: string[] = [];
+export function setGlobalPlayers(names: string[]) {
+  GLOBAL_PLAYERS = Array.from(new Set(names));
+}
+export function globalPlayers(): string[] {
+  return GLOBAL_PLAYERS;
+}
+
 export function catalogFor(kind: AxisKind, players?: string[], sport?: Sport | null): Group[] {
   if (kind === "col") {
     return Object.entries(COL_DEF)
@@ -109,6 +138,11 @@ export function catalogFor(kind: AxisKind, players?: string[], sport?: Sport | n
     out.push({
       category: "이 경기 선수",
       items: players.map((n) => mk(n, "이 경기 선수", "row", "match")),
+    });
+  } else if (GLOBAL_PLAYERS.length) {
+    out.push({
+      category: "선수",
+      items: GLOBAL_PLAYERS.map((n) => mk(n, "선수", "row")),
     });
   }
   for (const [category, g] of Object.entries(ROW_DEF)) {

@@ -24,6 +24,9 @@ export type AxisRef = {
 };
 
 export type CellRequest = { row: AxisRef; col: AxisRef };
+
+/** 박스 전체에 걸린 조건(스포츠조각의 "조건"). 빈 문자열 = 조건 없음. */
+export type Condition = string;
 export type CellResult = { rowId: string; colId: string; value: string; from: "cache" | "ai" | "failed" };
 
 export type MatchContext = {
@@ -35,10 +38,11 @@ export type MatchContext = {
 } | null;
 
 /** 전역 조합 캐시 키. 박스가 달라도 같은 조합이면 재사용(F-03). wr2 = 승률 체계. */
-export function comboKey(row: AxisRef, col: AxisRef): string {
+export function comboKey(row: AxisRef, col: AxisRef, cond: Condition = ""): string {
   const r = `${row.name}|${row.ctx ?? ""}|${row.src ?? ""}`;
   const c = `${col.name}|${col.ctx ?? ""}|${col.src ?? ""}`;
-  return `wr2:${r} :: ${c}`;
+  // 조건이 없으면 접두사를 붙이지 않는다 — 이미 예열해 둔 2,500여 건을 그대로 쓰기 위해서다.
+  return cond ? `wr2@${cond}:${r} :: ${c}` : `wr2:${r} :: ${c}`;
 }
 
 function hash(s: string): number {
@@ -195,13 +199,19 @@ export function aiAvailable(): boolean {
   return cliOn() || getClient() !== null;
 }
 
-async function aiCompute(reqs: CellRequest[], ctx: MatchContext): Promise<Map<number, string>> {
+async function aiCompute(
+  reqs: CellRequest[], ctx: MatchContext, cond: Condition = ""
+): Promise<Map<number, string>> {
   const out = new Map<number, string>();
   if (!reqs.length || !aiAvailable()) return out;
 
   const ctxLine = ctx
     ? `경기 맥락: ${ctx.sport} ${ctx.league} / ${ctx.home} vs ${ctx.away} (${ctx.status})`
     : "경기 맥락: 없음 (일반 지표)";
+  // 조건은 전제다 — "비 올 때"의 승률과 평상시 승률은 다른 값이어야 한다.
+  const condLine = cond
+    ? `전제 조건: **${cond}** 인 경기로 한정한다. 이 조건이 각 주체에게 유리한지 불리한지를 반드시 값에 반영하라.`
+    : "전제 조건: 없음";
 
   const list = reqs
     .map((r, i) => {
@@ -230,16 +240,20 @@ async function aiCompute(reqs: CellRequest[], ctx: MatchContext): Promise<Map<nu
  * 셀 배치 산출. 캐시 히트는 즉시, 나머지만 AI로 묶어 호출한다.
  * 어떤 경우에도 입력 개수만큼 결과를 돌려준다.
  */
-export async function computeCells(reqs: CellRequest[], ctx: MatchContext): Promise<CellResult[]> {
+export async function computeCells(
+  reqs: CellRequest[], ctx: MatchContext, cond: Condition = ""
+): Promise<CellResult[]> {
   if (!reqs.length) return [];
 
-  const keys = reqs.map((r) => comboKey(r.row, r.col));
+  const keys = reqs.map((r) => comboKey(r.row, r.col, cond));
   const cached = await readCache(Array.from(new Set(keys)));
 
   const missIdx: number[] = [];
   reqs.forEach((_, i) => { if (!cached.has(keys[i])) missIdx.push(i); });
 
-  const aiVals = missIdx.length ? await aiCompute(missIdx.map((i) => reqs[i]), ctx) : new Map<number, string>();
+  const aiVals = missIdx.length
+    ? await aiCompute(missIdx.map((i) => reqs[i]), ctx, cond)
+    : new Map<number, string>();
 
   const fresh: { combo_key: string; value: string }[] = [];
   const results: CellResult[] = reqs.map((r, i) => {

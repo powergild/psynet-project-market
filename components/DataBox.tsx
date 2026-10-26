@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   catalogFor, searchAxes, DEFAULT_ROWS, DEFAULT_COLS, NO_VALUE,
+  CONDITIONS, NO_CONDITION, setGlobalPlayers,
   type AxisDef, type AxisKind, type Sport,
 } from "@/lib/axes";
 import { recommendAxis, recommendForCell, type AxisOffer } from "@/lib/market";
@@ -40,7 +41,13 @@ function reweigh(base: string, ratio: number): string {
  * - 메인(match=null): 경기에 묶이지 않은 내 박스. 발광하지 않는다.
  * - 경기 상세(match=…): 그 경기 전용 박스. 선수 축을 쓸 수 있고 발광 대상이 된다.
  */
-export default function DataBox({ match = null }: { match?: Match | null }) {
+export default function DataBox({
+  match = null, players = [],
+}: {
+  match?: Match | null;
+  /** 경기 밖에서 주체로 세울 수 있는 선수. 조각은 아무 팀 선수나 고를 수 있다. */
+  players?: string[];
+}) {
   const matchId = match?.id ?? null;
   const scope = match ? `${match.home}·${match.away}` : null;
   const sport = (match?.sport as Sport | undefined) ?? null;
@@ -62,6 +69,8 @@ export default function DataBox({ match = null }: { match?: Match | null }) {
   const [ghost, setGhost] = useState<AxisOffer | null>(null);
   const [sco, setSco] = useState(120);
   const [dialog, setDialog] = useState<Dialog | null>(null);
+  const [cond, setCond] = useState<string>(NO_CONDITION);   // 박스 전체 조건(조각의 "조건")
+  const [condOpen, setCondOpen] = useState(false);
 
   const toastT = useRef<ReturnType<typeof setTimeout> | null>(null);
   const ready = useRef(false);
@@ -75,6 +84,8 @@ export default function DataBox({ match = null }: { match?: Match | null }) {
   }, []);
 
   useEffect(() => { setSco(balance()); }, []);
+  // 경기 밖 선수 풀을 축 카탈로그에 올린다(조각: 아무 팀 선수나 고를 수 있다).
+  useEffect(() => { setGlobalPlayers(players); }, [players]);
   useEffect(() => { cellsRef.current = cells; }, [cells]);
 
   // ── 셀 계산 ──────────────────────────────────────
@@ -100,6 +111,7 @@ export default function DataBox({ match = null }: { match?: Match | null }) {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             matchId,
+            cond,
             pairs: pairs.map((p) => ({
               row: { id: p.row.id, name: p.row.ax, ctx: p.row.ctx, src: p.row.src },
               col: { id: p.col.id, name: p.col.ax, ctx: p.col.ctx, src: p.col.src },
@@ -118,7 +130,7 @@ export default function DataBox({ match = null }: { match?: Match | null }) {
       }
       setPending(new Set());
     },
-    [matchId, say]
+    [matchId, cond, say]
   );
 
   // ── 복원 / 최초 생성 ─────────────────────────────
@@ -132,6 +144,7 @@ export default function DataBox({ match = null }: { match?: Match | null }) {
         if (Array.isArray(s.rows) && s.rows.length) {
           setRows(s.rows); setCols(s.cols ?? []); setCells(s.cells ?? {});
           if (s.name) setName(s.name);
+          if (typeof s.cond === "string") setCond(s.cond);
           return;
         }
       }
@@ -149,9 +162,9 @@ export default function DataBox({ match = null }: { match?: Match | null }) {
   useEffect(() => {
     if (!rows.length) return;
     try {
-      window.localStorage.setItem(storeKey(matchId), JSON.stringify({ name, rows, cols, cells }));
+      window.localStorage.setItem(storeKey(matchId), JSON.stringify({ name, cond, rows, cols, cells }));
     } catch {}
-  }, [name, rows, cols, cells, matchId]);
+  }, [name, cond, rows, cols, cells, matchId]);
 
   // ── 화면 채우기 ──────────────────────────────────
   // 칸 크기는 고정이다. 남는 자리는 늘려서가 아니라 **항목을 더 넣어서** 채운다.
@@ -329,6 +342,16 @@ export default function DataBox({ match = null }: { match?: Match | null }) {
     setFormula(null); say("계산식 조정 완료");
   };
 
+  /** 조건이 바뀌면 값의 전제가 바뀐다 — 기존 값을 들고 있으면 거짓말이 된다. */
+  const applyCond = (next: string) => {
+    setCondOpen(false);
+    if (next === cond) return;
+    setCond(next);
+    setCells({});
+    setGlow(null);
+    say(next ? `조건: ${next}` : "조건을 해제했습니다.");
+  };
+
   const onCellTap = (r: Axis, c: Axis) => {
     const lit = glow?.cells.some((g) => g.rowId === r.id && g.colId === c.id);
     if (lit && r.ax && c.ax) {
@@ -365,6 +388,12 @@ export default function DataBox({ match = null }: { match?: Match | null }) {
 
   return (
     <>
+      <button className="condbar" onClick={() => setCondOpen(true)}>
+        <span className="cb-l">조건</span>
+        <span className={`cb-v${cond ? " on" : ""}`}>{cond || "없음 (평상시)"}</span>
+        <span className="cb-c">바꾸기</span>
+      </button>
+
       {pending.size > 0 && <div className="statusline">셀을 채우는 중 · {pending.size}칸 남음</div>}
       {!pending.size && glowing && <div className="statusline">이 경기를 읽는 중…</div>}
       {!pending.size && failedCount > 0 && (
@@ -449,6 +478,45 @@ export default function DataBox({ match = null }: { match?: Match | null }) {
                       {it.scope === "match" && <span className="tag">이 경기</span>}
                     </button>
                   ))}
+                </div>
+              ))}
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* ── 조건 고르기 (조각의 "조건") ── */}
+      {condOpen && (
+        <>
+          <div className="scrim" onClick={() => setCondOpen(false)} />
+          <div className="sheet" role="dialog" aria-label="조건 고르기">
+            <div className="grab"><i /></div>
+            <div className="shead">
+              <span className="bname">조건 고르기</span>
+              <span className="spacer" />
+              <button className="btn" onClick={() => setCondOpen(false)}>닫기</button>
+            </div>
+            <p className="shint">
+              박스 전체에 걸립니다. “비 오는 날 음바페가 득점 관점에서 유리할 확률”처럼
+              <b> 값의 전제</b>가 바뀝니다.
+            </p>
+            <div className="sbody">
+              <div className="pickgrid">
+                <button className={`pick${cond ? "" : " on"}`} onClick={() => applyCond(NO_CONDITION)}>
+                  없음 (평상시)
+                </button>
+              </div>
+              {CONDITIONS.map((g) => (
+                <div className="axgroup" key={g.category}>
+                  <div className="gl">{g.category}</div>
+                  <div className="pickgrid">
+                    {g.items.map((it) => (
+                      <button key={it} className={`pick${cond === it ? " on" : ""}`}
+                              onClick={() => applyCond(it)}>
+                        {it}
+                      </button>
+                    ))}
+                  </div>
                 </div>
               ))}
             </div>

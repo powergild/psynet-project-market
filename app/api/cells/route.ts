@@ -7,6 +7,7 @@ export const dynamic = "force-dynamic";
 
 type Body = {
   matchId?: string | null;
+  cond?: string;                 // 박스 전체에 걸린 조건(스포츠조각의 "조건")
   pairs?: { row: AxisRef; col: AxisRef }[];
 };
 
@@ -34,7 +35,7 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const cells = await computeCells(valid, ctx);
+    const cells = await computeCells(valid, ctx, (body?.cond ?? "").slice(0, 20));
     return NextResponse.json({ ok: true, cells });
   } catch (e) {
     return NextResponse.json(
