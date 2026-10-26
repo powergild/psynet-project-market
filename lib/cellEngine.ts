@@ -53,21 +53,39 @@ export function pct(v: string | undefined | null): number | null {
 }
 
 // ── 캐시 ──────────────────────────────────────────────────
+// PostgREST는 .in()을 URL 쿼리로 실어 보낸다. 키가 길고(대상까지 들어간다) 개수가 많으면
+// 요청이 통째로 실패한다. 그걸 조용히 삼키면 **캐시가 통째로 비어 보여** 전부 AI로 재계산된다.
+const CACHE_CHUNK = 25;
+
 async function readCache(keys: string[]): Promise<Map<string, string>> {
   const out = new Map<string, string>();
   if (!keys.length) return out;
-  const { data, error } = await supabase
-    .from("cell_cache")
-    .select("combo_key,value")
-    .in("combo_key", keys);
-  if (error || !data) return out;
-  for (const r of data as { combo_key: string; value: string }[]) out.set(r.combo_key, r.value);
+
+  const chunks: string[][] = [];
+  for (let i = 0; i < keys.length; i += CACHE_CHUNK) chunks.push(keys.slice(i, i + CACHE_CHUNK));
+
+  const results = await Promise.all(
+    chunks.map((c) =>
+      supabase.from("cell_cache").select("combo_key,value").in("combo_key", c)
+    )
+  );
+  for (const { data, error } of results) {
+    if (error) { console.error("[cache] 읽기 실패", error.message); continue; }
+    for (const r of (data ?? []) as { combo_key: string; value: string }[]) {
+      out.set(r.combo_key, r.value);
+    }
+  }
   return out;
 }
 
 async function writeCache(rows: { combo_key: string; value: string }[]): Promise<void> {
   if (!rows.length) return;
-  await supabase.from("cell_cache").upsert(rows, { onConflict: "combo_key" });
+  for (let i = 0; i < rows.length; i += 100) {
+    const { error } = await supabase
+      .from("cell_cache")
+      .upsert(rows.slice(i, i + 100), { onConflict: "combo_key" });
+    if (error) console.error("[cache] 쓰기 실패", error.message);
+  }
 }
 
 // ── AI ────────────────────────────────────────────────────
@@ -292,10 +310,10 @@ export async function analyzeGlow(cands: GlowCandidate[], ctx: MatchContext): Pr
     try {
       // 캐시는 축 **이름**으로 저장된다. id는 사람마다 다르므로 읽을 때 지금 격자의 id로 돌려놓는다.
       const g = JSON.parse(cachedGlow) as { picks: { row: string; col: string; why: string }[]; line: string };
-      const byName = new Map(cands.map((c) => [c.row + " " + c.col, c]));
+      const byName = new Map(cands.map((c) => [c.row + "\u0000" + c.col, c]));
       const cells = (g.picks ?? [])
         .map((p) => {
-          const c = byName.get(p.row + " " + p.col);
+          const c = byName.get(p.row + "\u0000" + p.col);
           return c ? { rowId: c.rowId, colId: c.colId, why: p.why } : null;
         })
         .filter((x): x is GlowPick => x !== null);
@@ -316,9 +334,9 @@ export async function analyzeGlow(cands: GlowCandidate[], ctx: MatchContext): Pr
       .slice(0, 3)
       .map((p) => ({ rowId: cands[p.i].rowId, colId: cands[p.i].colId, why: p.why }));
     const out = { cells, line: parsed.line ?? "", ok: true };
-    const byId = new Map(cands.map((c) => [c.rowId + " " + c.colId, c]));
+    const byId = new Map(cands.map((c) => [c.rowId + "\u0000" + c.colId, c]));
     const picks = cells.map((p) => {
-      const c = byId.get(p.rowId + " " + p.colId);
+      const c = byId.get(p.rowId + "\u0000" + p.colId);
       return { row: c?.row ?? "", col: c?.col ?? "", why: p.why };
     });
     await writeCache([{ combo_key: gkey, value: JSON.stringify({ picks, line: out.line }) }]);

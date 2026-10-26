@@ -81,9 +81,17 @@ export async function cliAskJson(system: string, user: string): Promise<string |
     child.on("close", () => {
       clearTimeout(timer);
       try {
-        const env = JSON.parse(out) as { result?: string; is_error?: boolean };
+        const env = JSON.parse(out) as {
+          result?: string; is_error?: boolean;
+          duration_api_ms?: number; stop_reason?: string;
+        };
+        // API를 아예 말걸지 않고 돌아오면 사용량 한도다. 형식 오류와 섞이면 진단이 안 된다.
+        if (env.duration_api_ms === 0 && !env.result) {
+          console.error("[cli] 구독 사용량 한도에 걸린 것으로 보입니다(API 호출 0ms).");
+          return finish(null);
+        }
         if (env.is_error || typeof env.result !== "string") {
-          console.error("[cli] 응답 오류", JSON.stringify(env).slice(0, 300));
+          console.error("[cli] 응답 오류", JSON.stringify(env).slice(0, 200));
           return finish(null);
         }
         return finish(unfence(env.result));

@@ -47,7 +47,15 @@ export async function POST(req: NextRequest) {
     if (m) ctx = { sport: m.sport, league: m.league, home: m.home, away: m.away, status: m.status };
   }
 
-  const res = await computeCells(batch, ctx);
+  let res;
+  try {
+    res = await computeCells(batch, ctx);
+  } catch (e) {
+    return NextResponse.json(
+      { ok: false, error: e instanceof Error ? e.message : "예열 실패" },
+      { status: 500 }
+    );
+  }
   const count = (k: string) => res.filter((r) => r.from === k).length;
 
   return NextResponse.json({
