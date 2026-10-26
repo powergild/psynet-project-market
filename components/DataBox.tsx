@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   catalogFor, searchAxes, DEFAULT_ROWS, DEFAULT_COLS, NO_VALUE,
-  CONDITIONS, NO_CONDITION, setGlobalPlayers,
+  CONDITIONS, NO_CONDITION, setGlobalPlayers, condKey, condParts,
   type AxisDef, type AxisKind, type Sport,
 } from "@/lib/axes";
 import { recommendAxis, recommendForCell, type AxisOffer } from "@/lib/market";
@@ -13,7 +13,8 @@ import type { Match } from "@/lib/matches";
 
 type Axis = { id: string; ax: string | null; ctx: string | null; src: string | null };
 type Target = { kind: AxisKind; id: string } | null;
-type Glow = { cells: { rowId: string; colId: string; why: string }[]; line: string; ok: boolean };
+type GlowCell = { rowId: string; colId: string; why: string; level?: number; trust?: number | null; scored?: number };
+type Glow = { cells: GlowCell[]; line: string; ok: boolean };
 type Term = { n: string; w: number };
 type Formula = { rowId: string; colId: string; title: string; base: string; terms: Term[]; base0: number };
 type CellRec = { rowId: string; colId: string; row: string; col: string; offer: AxisOffer & { hit: number } };
@@ -71,6 +72,7 @@ export default function DataBox({
   const [dialog, setDialog] = useState<Dialog | null>(null);
   const [cond, setCond] = useState<string>(NO_CONDITION);   // 박스 전체 조건(조각의 "조건")
   const [condOpen, setCondOpen] = useState(false);
+  const condAtOpen = useRef("");
 
   const toastT = useRef<ReturnType<typeof setTimeout> | null>(null);
   const ready = useRef(false);
@@ -218,7 +220,7 @@ export default function DataBox({
       const res = await fetch("/api/glow", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ matchId, boxId: boxId(matchId), boxName: name, cells: cands }),
+        body: JSON.stringify({ matchId, boxId: boxId(matchId), boxName: name, cond, cells: cands }),
       });
       const d = await res.json();
       if (d.ok) {
@@ -230,7 +232,7 @@ export default function DataBox({
       } else setGlow({ cells: [], line: "", ok: false });
     } catch { setGlow({ cells: [], line: "", ok: false }); }
     setGlowing(false);
-  }, [matchId, rows, cols, cells, pending.size, name, say]);
+  }, [matchId, rows, cols, cells, pending.size, name, cond, say]);
 
   // 경기 안에서 격자가 다 채워지면 바로 읽는다. 유저가 버튼을 누를 일이 아니다.
   const analyzedFor = useRef<string>("");
@@ -342,14 +344,27 @@ export default function DataBox({
     setFormula(null); say("계산식 조정 완료");
   };
 
-  /** 조건이 바뀌면 값의 전제가 바뀐다 — 기존 값을 들고 있으면 거짓말이 된다. */
-  const applyCond = (next: string) => {
+  /**
+   * 조건은 겹칠 수 있다 — "비 오는 날 + 지고 있을 때"처럼.
+   * 반드시 함수형으로 갱신한다. 그냥 cond를 읽으면 연속으로 누를 때 앞 선택이 날아간다.
+   */
+  const toggleCond = (item: string) => {
+    setCond((prev) => {
+      const cur = condParts(prev);
+      return condKey(cur.includes(item) ? cur.filter((x) => x !== item) : [...cur, item]);
+    });
+  };
+
+  /**
+   * 고르는 동안에는 다시 계산하지 않고, 시트를 닫을 때 한 번만 한다 —
+   * 조건 하나 누를 때마다 격자 전체를 다시 계산하면 느리고 비싸다.
+   */
+  const closeCond = () => {
     setCondOpen(false);
-    if (next === cond) return;
-    setCond(next);
-    setCells({});
+    if (cond === condAtOpen.current) return;
+    setCells({});                       // 전제가 바뀌었다 — 옛 값을 들고 있으면 거짓말이 된다
     setGlow(null);
-    say(next ? `조건: ${next}` : "조건을 해제했습니다.");
+    say(cond ? `조건: ${condParts(cond).join(" + ")}` : "조건을 해제했습니다.");
   };
 
   const onCellTap = (r: Axis, c: Axis) => {
@@ -388,9 +403,11 @@ export default function DataBox({
 
   return (
     <>
-      <button className="condbar" onClick={() => setCondOpen(true)}>
+      <button className="condbar" onClick={() => { condAtOpen.current = cond; setCondOpen(true); }}>
         <span className="cb-l">조건</span>
-        <span className={`cb-v${cond ? " on" : ""}`}>{cond || "없음 (평상시)"}</span>
+        <span className={`cb-v${cond ? " on" : ""}`}>
+          {cond ? condParts(cond).join(" + ") : "없음 (평상시)"}
+        </span>
         <span className="cb-c">바꾸기</span>
       </button>
 
@@ -488,21 +505,22 @@ export default function DataBox({
       {/* ── 조건 고르기 (조각의 "조건") ── */}
       {condOpen && (
         <>
-          <div className="scrim" onClick={() => setCondOpen(false)} />
+          <div className="scrim" onClick={closeCond} />
           <div className="sheet" role="dialog" aria-label="조건 고르기">
             <div className="grab"><i /></div>
             <div className="shead">
               <span className="bname">조건 고르기</span>
               <span className="spacer" />
-              <button className="btn" onClick={() => setCondOpen(false)}>닫기</button>
+              <button className="btn pri" onClick={closeCond}>적용</button>
             </div>
             <p className="shint">
               박스 전체에 걸립니다. “비 오는 날 음바페가 득점 관점에서 유리할 확률”처럼
-              <b> 값의 전제</b>가 바뀝니다.
+              <b> 값의 전제</b>가 바뀝니다. 여러 개를 겹쳐 걸 수 있고,
+              겹칠수록 맞았을 때 조각이 더 자랍니다.
             </p>
             <div className="sbody">
               <div className="pickgrid">
-                <button className={`pick${cond ? "" : " on"}`} onClick={() => applyCond(NO_CONDITION)}>
+                <button className={`pick${cond ? "" : " on"}`} onClick={() => setCond(NO_CONDITION)}>
                   없음 (평상시)
                 </button>
               </div>
@@ -511,8 +529,8 @@ export default function DataBox({
                   <div className="gl">{g.category}</div>
                   <div className="pickgrid">
                     {g.items.map((it) => (
-                      <button key={it} className={`pick${cond === it ? " on" : ""}`}
-                              onClick={() => applyCond(it)}>
+                      <button key={it} className={`pick${condParts(cond).includes(it) ? " on" : ""}`}
+                              onClick={() => toggleCond(it)}>
                         {it}
                       </button>
                     ))}
@@ -577,6 +595,15 @@ export default function DataBox({
               <button className="btn" onClick={() => setCellRec(null)}>닫기</button>
             </div>
             <p className="shint">{glowWhy(cellRec.rowId, cellRec.colId)}</p>
+            {(() => {
+              const g = glow?.cells.find((x) => x.rowId === cellRec.rowId && x.colId === cellRec.colId);
+              if (!g || !g.scored) return null;
+              return (
+                <p className="shint">
+                  이 조각: <b>Lv.{g.level}</b> · 누적 {g.scored}회 채점 · 보정 적중 {g.trust}%
+                </p>
+              );
+            })()}
             <div className="sbody">
               <div className="reccard">
                 <div className="rc-t">{cellRec.offer.src}의 “{cellRec.offer.ax}”</div>

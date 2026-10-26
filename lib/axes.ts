@@ -53,6 +53,16 @@ export const CONDITION_NAMES: string[] = CONDITIONS.flatMap((g) => g.items);
 /** 조건 없음 = 기본. 예열해 둔 캐시가 이 상태를 쓴다. */
 export const NO_CONDITION = "";
 
+/** 조건은 여러 개를 겹칠 수 있다 — 조각이 "비 오는 날 + 지고 있을 때"처럼 겹쳐 걸리기 때문이다.
+ *  키는 정렬해서 합친다. 고른 순서가 달라도 같은 조각이어야 한다. */
+export const COND_SEP = "·";
+export function condKey(items: string[]): string {
+  return Array.from(new Set(items)).sort().join(COND_SEP);
+}
+export function condParts(cond: string): string[] {
+  return cond ? cond.split(COND_SEP).filter(Boolean) : [];
+}
+
 /** 행 분류 목록 (초기 설문에서 쓴다) */
 export const ROW_CATEGORIES = Object.keys(ROW_DEF);
 

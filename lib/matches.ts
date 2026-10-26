@@ -18,6 +18,8 @@ export type Match = {
   scoreAway: number | null;
   minute: string | null;  // "72'" | "7회말" | "Q3 04:12"
   players: string[];      // 이 경기 선수 — 경기 스코프 축 후보(F-17)
+  weather: string;        // 조건(날씨)과 대조한다 — 일치하면 경험치 배수
+  situations: string[];   // 조건(상황)과 대조한다 — 라이벌전·추격 중 등
 };
 
 export type MatchStat = {
@@ -49,6 +51,8 @@ const SEED: Match[] = [
     minute: "72'",
     players: ["음바페", "그리즈만", "뎀벨레", "지루", "추아메니", "요리스",
               "하키미", "지예흐", "엔네시리", "부누", "아마라비", "암라바트"],
+    weather: "비",
+    situations: ["라이벌전"],
   },
   {
     id: "m-sei-rak",
@@ -63,6 +67,8 @@ const SEED: Match[] = [
     minute: "7회말",
     players: ["야마카와", "겐다", "모리", "다카하시", "히라이", "아사무라",
               "시마우치", "다나카", "모기", "스즈키"],
+    weather: "맑음",
+    situations: ["추격 중", "주중 경기"],
   },
   {
     id: "m-aus-kaz",
@@ -77,6 +83,8 @@ const SEED: Match[] = [
     minute: null,
     players: ["구드윈", "어바인", "보일", "라이언", "수타르", "무이",
               "자이누트디노프", "추프리나", "아슬란베크", "포킨"],
+    weather: "강풍",
+    situations: ["원정 3연전"],
   },
   {
     id: "m-nzb-syd",
@@ -91,6 +99,8 @@ const SEED: Match[] = [
     minute: null,
     players: ["웹스터", "르어프", "애벗", "델라니", "쿡스", "보건",
               "헌터", "비커스태프", "프록터"],
+    weather: "맑음",
+    situations: ["리드 중", "만원 관중"],
   },
 ];
 

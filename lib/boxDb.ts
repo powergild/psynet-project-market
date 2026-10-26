@@ -6,6 +6,8 @@
 
 import { supabase } from "@/lib/supabase";
 import type { GlowCandidate, GlowPick } from "@/lib/cellEngine";
+import { expFor } from "@/lib/pieces";
+import { getMatchSource } from "@/lib/matches";
 
 /** 박스 행이 없으면 만든다. glow_records가 boxes를 참조하므로 선언 전에 반드시 호출. */
 export async function ensureBox(boxId: string, owner: string, name: string): Promise<void> {
@@ -20,7 +22,8 @@ export async function recordGlow(
   boxId: string,
   matchId: string,
   picks: GlowPick[],
-  cands: GlowCandidate[]
+  cands: GlowCandidate[],
+  cond = ""
 ): Promise<void> {
   if (!picks.length) return;
 
@@ -39,6 +42,7 @@ export async function recordGlow(
     return {
       box_id: boxId,
       match_id: matchId,
+      condition: cond,
       row_axis_id: p.rowId,
       col_axis_id: p.colId,
       row_axis_name: c?.row ?? "",
@@ -47,9 +51,16 @@ export async function recordGlow(
       reason: p.why,
     };
   });
-  await supabase.from("glow_records").upsert(rows, {
-    onConflict: "box_id,match_id,row_axis_id,col_axis_id",
-  });
+  const conflict = "box_id,match_id,row_axis_id,col_axis_id";
+  const { error } = await supabase.from("glow_records").upsert(rows, { onConflict: conflict });
+
+  // 2026-10-27 마이그레이션 전이면 condition 컬럼이 없다. 선언 기록이 통째로 막히는 것보다
+  // 조건 없이라도 남기는 편이 낫다 — 마이그레이션을 돌리면 자동으로 정상 경로를 탄다.
+  if (error?.message?.includes("condition")) {
+    console.error("[glow] condition 컬럼 없음 — 2026-10-27-pieces.sql 실행 필요");
+    const bare = rows.map(({ condition, ...r }) => r);
+    await supabase.from("glow_records").upsert(bare, { onConflict: conflict });
+  }
 }
 
 export type Declaration = {
@@ -120,24 +131,36 @@ export async function scoreMatch(
   if (scoreHome === null || scoreAway === null) return 0;
   const { data, error } = await supabase
     .from("glow_records")
-    .select("id,row_axis_name,value_at_glow")
+    .select("id,row_axis_name,col_axis_name,condition,value_at_glow")
     .eq("match_id", matchId)
     .eq("scored", false);
   if (error || !data || !data.length) return 0;
+
+  const src = getMatchSource();
+  const match = await src.getMatch(matchId);
+  const stats = match ? await src.getStats(matchId) : [];
 
   const draw = scoreHome === scoreAway;
   const homeWon = scoreHome > scoreAway;
   const now = new Date().toISOString();
 
-  for (const r of data as { id: number; row_axis_name: string; value_at_glow: string }[]) {
+  type R = { id: number; row_axis_name: string; col_axis_name: string; condition: string; value_at_glow: string };
+  for (const r of data as R[]) {
     const v = parseFloat(r.value_at_glow);
     if (!isFinite(v)) continue;
     // 행 축이 주체다. "원정팀"만 원정을 가리키고, 나머지 기준은 홈 관점으로 읽는다.
     const subjectWon = r.row_axis_name === "원정팀" ? !homeWon : homeWon;
     // 무승부는 어느 쪽도 이기지 않았다 — 50 근처로 선언했을 때만 적중으로 본다.
     const hit = draw ? Math.abs(v - 50) <= 5 : (v >= 50) === subjectWon;
+
+    // 맞았느냐로 끝내지 않는다 — 얼마나 맞아떨어졌는지가 조각을 키운다.
+    const exp = match
+      ? expFor({ hit, cond: r.condition ?? "", colAxis: r.col_axis_name,
+                 rowAxis: r.row_axis_name, match, stats })
+      : 0;
+
     await supabase.from("glow_records")
-      .update({ scored: true, hit, scored_at: now })
+      .update({ scored: true, hit, exp, scored_at: now })
       .eq("id", r.id);
   }
   return data.length;
