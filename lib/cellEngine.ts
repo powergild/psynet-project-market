@@ -53,19 +53,34 @@ export function pct(v: string | undefined | null): number | null {
 }
 
 // ── 캐시 ──────────────────────────────────────────────────
-// PostgREST는 .in()을 URL 쿼리로 실어 보낸다. 키가 길고(대상까지 들어간다) 개수가 많으면
-// 요청이 통째로 실패한다. 그걸 조용히 삼키면 **캐시가 통째로 비어 보여** 전부 AI로 재계산된다.
-const CACHE_CHUNK = 25;
+// PostgREST는 .in()을 URL 쿼리로 실어 보낸다. 그런데 한글은 퍼센트 인코딩되면 한 글자가 9바이트다.
+// 조합 키에 대상(ctx)까지 들어가므로 몇 십 개만 묶어도 URL이 터져 요청이 통째로 실패한다.
+// 그걸 조용히 삼키면 **캐시가 비어 보여** 전 셀이 AI로 재계산된다 — 예열해 둔 게 무의미해진다.
+// 그래서 **개수가 아니라 인코딩 길이로** 쌓는다. 팀이름이 긴 경기에서 실제로 터졌다.
+const URL_BUDGET = 6000;        // 실측 한계는 약 8KB(8,086B 성공 / 8,822B 실패) — 여유를 둔다
+const MAX_KEYS = 40;
+
+function chunkKeys(keys: string[]): string[][] {
+  const chunks: string[][] = [];
+  let cur: string[] = [];
+  let size = 0;
+  for (const k of keys) {
+    const cost = encodeURIComponent(k).length + 3;   // 구분자·따옴표 여유
+    if (cur.length && (size + cost > URL_BUDGET || cur.length >= MAX_KEYS)) {
+      chunks.push(cur); cur = []; size = 0;
+    }
+    cur.push(k); size += cost;
+  }
+  if (cur.length) chunks.push(cur);
+  return chunks;
+}
 
 async function readCache(keys: string[]): Promise<Map<string, string>> {
   const out = new Map<string, string>();
   if (!keys.length) return out;
 
-  const chunks: string[][] = [];
-  for (let i = 0; i < keys.length; i += CACHE_CHUNK) chunks.push(keys.slice(i, i + CACHE_CHUNK));
-
   const results = await Promise.all(
-    chunks.map((c) =>
+    chunkKeys(keys).map((c) =>
       supabase.from("cell_cache").select("combo_key,value").in("combo_key", c)
     )
   );
