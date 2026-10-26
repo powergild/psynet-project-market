@@ -3,7 +3,15 @@ import { notFound } from "next/navigation";
 import DataBox from "@/components/DataBox";
 import { getMatchSource } from "@/lib/matches";
 
-export const dynamic = "force-dynamic";
+// ⚠ force-dynamic 금지. CDN 캐시가 꺼져 요청마다 오리진이 HTML을 다시 만들고,
+// 그 전송량이 Fast Origin Transfer로 쌓인다. 실제로 그것 때문에 배포가 정지됐다(2026-10-24).
+export const revalidate = 60;
+
+/** 알려진 경기는 빌드 때 미리 만든다. 새 경기는 처음 요청 때 만들어 캐시한다. */
+export async function generateStaticParams() {
+  const all = await getMatchSource().listMatches();
+  return all.map((m) => ({ id: m.id }));
+}
 
 // 경기 상세 = 그 경기 단위로 묶인 데이터 박스.
 export default async function MatchPage({ params }: { params: Promise<{ id: string }> }) {

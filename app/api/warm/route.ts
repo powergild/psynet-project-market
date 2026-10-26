@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { computeCells, type MatchContext } from "@/lib/cellEngine";
-import { cliEnabled } from "@/lib/cliEngine";
+
 import { warmTargets, type WarmScope } from "@/lib/warm";
 import { getMatchSource } from "@/lib/matches";
 
@@ -17,7 +17,7 @@ type Body = { scope?: WarmScope; matchId?: string; offset?: number; limit?: numb
  * 아무나 대량 AI 호출을 유발할 수 있고, 예열은 구독으로 돌리는 게 목적이다.
  */
 export async function POST(req: NextRequest) {
-  if (!cliEnabled()) {
+  if (process.env.CLAUDE_CLI !== "1") {
     return NextResponse.json(
       { ok: false, error: "예열은 로컬(CLAUDE_CLI=1)에서만 실행합니다." },
       { status: 403 }
@@ -71,7 +71,7 @@ export async function POST(req: NextRequest) {
 
 /** 예열 대상 경기 목록. LIVE스코어가 붙으면 여기 그대로 따라온다. */
 export async function GET() {
-  if (!cliEnabled()) {
+  if (process.env.CLAUDE_CLI !== "1") {
     return NextResponse.json({ ok: false, error: "로컬 전용" }, { status: 403 });
   }
   const matches = await getMatchSource().listMatches();

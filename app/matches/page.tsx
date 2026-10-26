@@ -1,7 +1,9 @@
 import Link from "next/link";
 import { getMatchSource, type Match } from "@/lib/matches";
 
-export const dynamic = "force-dynamic";
+// ⚠ force-dynamic 금지. CDN 캐시가 꺼져 요청마다 오리진이 HTML을 다시 만들고,
+// 그 전송량이 Fast Origin Transfer로 쌓인다. 실제로 그것 때문에 배포가 정지됐다(2026-10-24).
+export const revalidate = 60;   // 경기 상황은 1분이면 충분히 신선하다
 
 const B: Record<Match["status"], { t: string; c: string }> = {
   live: { t: "LIVE", c: "live" },

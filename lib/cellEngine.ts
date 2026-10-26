@@ -12,7 +12,9 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { supabase } from "@/lib/supabase";
 import { NO_VALUE } from "@/lib/axes";
-import { cliEnabled, cliAskJson } from "@/lib/cliEngine";
+// cliEngine은 node:child_process를 쓴다. 정적 import하면 Node 런타임이 아닌 호스팅으로
+// 옮길 수 없고 번들도 무거워진다. 켜져 있을 때만 동적으로 불러온다.
+const cliOn = () => process.env.CLAUDE_CLI === "1";
 
 export type AxisRef = {
   id: string;
@@ -165,8 +167,9 @@ function coerce(n: number): string | null {
 async function askJson(
   system: string, user: string, schema: Record<string, unknown>, example: string
 ): Promise<string | null> {
-  if (cliEnabled()) {
+  if (cliOn()) {
     // CLI엔 json_schema 강제가 없다 — 형식을 프롬프트로 못박아야 제목·설명을 붙여 낸다.
+    const { cliAskJson } = await import("@/lib/cliEngine");
     return cliAskJson(`${system}\n\n[출력 형식 — 반드시 지킬 것]\nJSON 객체 **하나만** 출력한다. 코드블록·제목·설명·머리말 전부 금지.\n첫 글자는 {, 마지막 글자는 } 여야 한다.\n예시: ${example}`, user);
   }
 
@@ -189,7 +192,7 @@ async function askJson(
 
 /** 산출 백엔드가 하나도 없으면 시도하지 않는다. */
 export function aiAvailable(): boolean {
-  return cliEnabled() || getClient() !== null;
+  return cliOn() || getClient() !== null;
 }
 
 async function aiCompute(reqs: CellRequest[], ctx: MatchContext): Promise<Map<number, string>> {
