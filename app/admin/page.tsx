@@ -1,6 +1,7 @@
 import { cookies } from "next/headers";
 import { ADMIN_COOKIE, adminPasswordConfigured, isValidAdminToken } from "@/lib/adminAuth";
 import { getAllUsers, getBoxStats } from "@/lib/admin";
+import { hotRequests } from "@/lib/infoRequests";
 import AdminLogin from "@/components/AdminLogin";
 import AdminLogout from "@/components/AdminLogout";
 
@@ -19,7 +20,7 @@ export default async function AdminPage() {
   const store = await cookies();
   if (!isValidAdminToken(store.get(ADMIN_COOKIE)?.value)) return <AdminLogin />;
 
-  const [users, stats] = await Promise.all([getAllUsers(), getBoxStats()]);
+  const [users, stats, wanted] = await Promise.all([getAllUsers(), getBoxStats(), hotRequests()]);
   const hitRate = stats.glowScored > 0 ? Math.round((stats.glowHit / stats.glowScored) * 100) : null;
 
   const cell: React.CSSProperties = { padding: "7px 8px", fontSize: 13 };
@@ -60,6 +61,33 @@ export default async function AdminPage() {
                     {hitRate !== null && <span style={{ color: "var(--amber-deep)" }}> ({hitRate}%)</span>}
                   </td>
                 </tr>
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {/* 모르는 대상의 칸에서 유저가 남긴 요청. 어떤 데이터를 먼저 붙여야 하는지를
+            추측하지 않고 유저에게서 받는다 — 연동 우선순위의 근거가 된다. */}
+        <div className="seclabel">데이터 요청 ({wanted.length}건)</div>
+        {wanted.length === 0 ? (
+          <div className="empty-state">아직 요청 없음.</div>
+        ) : (
+          <div className="mcard" style={{ cursor: "default", overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse" }}>
+              <thead>
+                <tr>{["요청", "기준", "지표", "조건"].map((h) => <th key={h} style={th}>{h}</th>)}</tr>
+              </thead>
+              <tbody>
+                {wanted.map((w) => (
+                  <tr key={w.cond + w.row + w.col}>
+                    <td className="num" style={{ ...cell, fontWeight: 700, color: "var(--amber-deep)" }}>
+                      {w.requests}회
+                    </td>
+                    <td style={cell}>{w.row}</td>
+                    <td style={cell}>{w.col}</td>
+                    <td style={{ ...cell, fontSize: 12, color: "var(--ink-soft)" }}>{w.cond || "-"}</td>
+                  </tr>
+                ))}
               </tbody>
             </table>
           </div>
