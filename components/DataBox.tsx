@@ -3,11 +3,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   catalogFor, searchAxes, DEFAULT_ROWS, DEFAULT_COLS, NO_VALUE,
-  CONDITIONS, NO_CONDITION, setGlobalPlayers, condKey, condParts,
+  CONDITIONS, NO_CONDITION, setGlobalPlayers, condKey, condParts, DETAIL_COLS, DETAIL_ROWS,
   type AxisDef, type AxisKind, type Sport,
 } from "@/lib/axes";
 import { recommendAxis, recommendForCell, type AxisOffer } from "@/lib/market";
 import { balance, spend } from "@/lib/wallet";
+import { sentenceOf } from "@/lib/sentence";
 import SetupSheet from "@/components/SetupSheet";
 import type { Match } from "@/lib/matches";
 
@@ -191,7 +192,7 @@ export default function DataBox({
 
     const used = new Set([...rows, ...cols].map((a) => a.ax));
     const pool = (kind: AxisKind, n: number) =>
-      catalogFor(kind, match?.players, sport)
+      catalogFor(kind, match?.players, sport, match ? "detail" : "top")
         .flatMap((g) => g.items.map((i) => i.name))
         .filter((x) => !used.has(x))
         .slice(0, n);
@@ -340,7 +341,9 @@ export default function DataBox({
       { n: "최근 5경기 가중", w: 30 }, { n: "표본 보정", w: 20 },
     ];
     setFormula({
-      rowId: r.id, colId: c.id, title: `${r.ax} × ${c.ax}`, base, terms,
+      rowId: r.id, colId: c.id,
+      title: sentenceOf({ cond, row: r.ax, col: c.ax }),   // 조각 이름 = 그 셀이 묻는 문장
+      base, terms,
       base0: terms.reduce((a, b) => a + b.w, 0),
     });
   };
@@ -394,7 +397,11 @@ export default function DataBox({
   const retryFailed = () =>
     void compute(rows, cols, (r, c) => cells[ck(r.id, c.id)] === NO_VALUE);
 
-  const groups = target ? searchAxes(catalogFor(target.kind, match?.players, sport), q) : [];
+  // 메인은 상위 개념, 경기 상세는 세부 지표까지 — 다루는 층위가 다르다.
+  const level = match ? "detail" : "top";
+  const groups = target
+    ? searchAxes(catalogFor(target.kind, match?.players, sport, level), q)
+    : [];
   const targetHasAxis = !!target && [...rows, ...cols].find((a) => a.id === target.id)?.ax;
   const glowWhy = (rowId: string, colId: string) =>
     glow?.cells.find((g) => g.rowId === rowId && g.colId === colId)?.why;
@@ -405,7 +412,11 @@ export default function DataBox({
         sport={sport}
         players={match?.players}
         onDone={start}
-        onSkip={() => start({ rows: DEFAULT_ROWS, cols: DEFAULT_COLS })}
+        onSkip={() => start(
+          sport
+            ? { rows: DETAIL_ROWS, cols: DETAIL_COLS[sport] }   // 경기 안 = 세부 지표
+            : { rows: DEFAULT_ROWS, cols: DEFAULT_COLS }        // 메인 = 상위 개념
+        )}
       />
     );
   }
@@ -558,8 +569,8 @@ export default function DataBox({
           <div className="scrim" onClick={() => setFormula(null)} />
           <div className="sheet fsheet" role="dialog" aria-label="계산식">
             <div className="grab"><i /></div>
-            <div className="shead">
-              <span className="bname">{formula.title}</span>
+            <div className="shead stack">
+              <span className="bname wrap">{formula.title}</span>
               <span className="spacer" />
               <button className="btn" onClick={() => setFormula(null)}>닫기</button>
             </div>
@@ -599,7 +610,9 @@ export default function DataBox({
           <div className="sheet rsheet" role="dialog" aria-label="추천">
             <div className="grab"><i /></div>
             <div className="shead">
-              <span className="bname">{cellRec.row} × {cellRec.col}</span>
+              <span className="bname wrap">
+                {sentenceOf({ cond, row: cellRec.row, col: cellRec.col })}
+              </span>
               <span className="chip amber">발광</span>
               <span className="spacer" />
               <button className="btn" onClick={() => setCellRec(null)}>닫기</button>

@@ -30,11 +30,12 @@ const TEAMS: Record<Sport, string[]> = {
 };
 
 /** 행 축 — 주체·조건 */
-const ROW_DEF: Record<string, { sport: Sport | "all"; items: string[] }> = {
-  "경기 구도": { sport: "all", items: ["홈팀", "원정팀", "최근 5경기 폼", "상대 전적", "선제골 여부", "후반 교체 타이밍"] },
-  "팀":       { sport: "all", items: SPORTS.flatMap((s) => TEAMS[s]) },
-  "팀 특성":  { sport: "all", items: ["주전 공격수", "주전 골키퍼", "벤치 뎁스", "감독 성향", "핵심 선수 결장", "팀 평균 연령"] },
-  "팀 상태":  { sport: "all", items: ["이동 거리", "휴식일 수", "연전 여부"] },
+const ROW_DEF: Record<string, { sport: Sport | "all"; level: AxisLevel; items: string[] }> = {
+  "팀":       { sport: "all", level: "top",    items: SPORTS.flatMap((s) => TEAMS[s]) },
+  "경기 구도": { sport: "all", level: "top",    items: ["홈팀", "원정팀", "최근 5경기 폼", "상대 전적"] },
+  "경기 전개": { sport: "all", level: "detail", items: ["선제골 여부", "후반 교체 타이밍"] },
+  "팀 특성":  { sport: "all", level: "detail", items: ["주전 공격수", "주전 골키퍼", "벤치 뎁스", "감독 성향", "핵심 선수 결장", "팀 평균 연령"] },
+  "팀 상태":  { sport: "all", level: "detail", items: ["이동 거리", "휴식일 수", "연전 여부"] },
 };
 
 /* ── 조건 ──────────────────────────────────
@@ -71,12 +72,21 @@ export const ROW_CATEGORIES = Object.keys(ROW_DEF);
 // 행(기준) × 열(지표)에 계산식이 적용된 결과가 승률이므로, 모든 셀의 단위는 하나다.
 export type AxisFormat = "dec" | "pct" | "int";   // 지표 자체의 성격(참고용)
 
-const COL_DEF: Record<string, { sport: Sport | "all"; metrics: Record<string, AxisFormat> }> = {
-  "기대값":    { sport: "all", metrics: { "득점 기대값": "dec", "실점 기대값": "dec" } },
-  "흐름":      { sport: "all", metrics: { "역전 빈도": "pct", "리드 유지율": "pct", "연장 승부 이력": "pct" } },
-  "축구 기록": { sport: "축구", metrics: { "점유율": "pct", "슈팅 수": "int", "유효슈팅": "int", "코너킥": "int", "PK 성공률": "pct", "세트피스 비중": "pct", "전반 득점": "dec", "후반 득점": "dec", "파울 수": "int", "경고 누적": "int" } },
-  "야구 기록": { sport: "야구", metrics: { "안타": "int", "도루": "int", "실책": "int", "삼진": "int", "볼넷": "int", "타율": "dec", "홈런": "int", "평균자책점": "dec" } },
-  "농구 기록": { sport: "농구", metrics: { "리바운드": "int", "어시스트": "int", "턴오버": "int", "3점 성공률": "pct", "자유투 성공률": "pct", "전반 득점": "dec", "후반 득점": "dec", "파울 수": "int" } },
+/* 축에는 층위가 있다.
+     top    메인에서 다루는 상위 개념 — 경기를 한눈에 가르는 것
+     detail 경기 상세에서 다루는 하위 개념 — 그 경기를 뜯어보는 것
+   메인에서 코너킥·PK 성공률까지 늘어놓으면 격자가 분석표가 되고, 경기 안에서
+   기대값만 보면 들어온 보람이 없다. */
+export type AxisLevel = "top" | "detail";
+
+const COL_DEF: Record<string, { sport: Sport | "all"; level: AxisLevel; metrics: Record<string, AxisFormat> }> = {
+  "기대값":    { sport: "all", level: "top", metrics: { "득점 기대값": "dec", "실점 기대값": "dec" } },
+  "흐름":      { sport: "all", level: "top", metrics: { "역전 빈도": "pct", "리드 유지율": "pct", "연장 승부 이력": "pct" } },
+  // 재미 지표 — 근거가 약한 대신 읽는 재미가 있다. 메인에서만 쓴다.
+  "재미":      { sport: "all", level: "top", metrics: { "오늘의 운세": "pct", "날씨 궁합": "pct", "징크스": "pct", "요일 운": "pct" } },
+  "축구 기록": { sport: "축구", level: "detail", metrics: { "점유율": "pct", "슈팅 수": "int", "유효슈팅": "int", "코너킥": "int", "PK 성공률": "pct", "세트피스 비중": "pct", "전반 득점": "dec", "후반 득점": "dec", "파울 수": "int", "경고 누적": "int" } },
+  "야구 기록": { sport: "야구", level: "detail", metrics: { "안타": "int", "도루": "int", "실책": "int", "삼진": "int", "볼넷": "int", "타율": "dec", "홈런": "int", "평균자책점": "dec" } },
+  "농구 기록": { sport: "농구", level: "detail", metrics: { "리바운드": "int", "어시스트": "int", "턴오버": "int", "3점 성공률": "pct", "자유투 성공률": "pct", "전반 득점": "dec", "후반 득점": "dec", "파울 수": "int" } },
 };
 
 const FORMAT: Record<string, AxisFormat> = Object.fromEntries(
@@ -108,13 +118,24 @@ export const ALL_AXES: AxisDef[] = [...ROW_AXES, ...COL_AXES];
 export const AXIS_NAMES = ALL_AXES.map((a) => a.name);
 
 /** 설문을 건너뛸 때 쓰는 기본 격자 8행 × 4열 */
-// 행은 주체다 — 날씨는 조건으로 올라갔으므로 기본 행에서 뺀다.
-export const DEFAULT_ROWS = [
-  "홈팀", "원정팀", "최근 5경기 폼", "상대 전적",
-  "주전 공격수", "주전 골키퍼", "휴식일 수", "선제골 여부",
+// 메인 기본 행 — 상위 개념만. 날씨는 조건으로, 세부 요인은 경기 상세로 갔다.
+// 나머지 칸은 화면 크기에 맞춰 상위 축(팀·선수)에서 채워진다.
+export const DEFAULT_ROWS = ["홈팀", "원정팀", "최근 5경기 폼", "상대 전적"];
+
+/** 경기 상세 기본 행 — 그 경기를 뜯어보는 축. */
+export const DETAIL_ROWS = [
+  "홈팀", "원정팀", "주전 공격수", "주전 골키퍼",
+  "선제골 여부", "후반 교체 타이밍", "벤치 뎁스", "휴식일 수",
 ];
 // 설문을 건너뛰면 종목을 모른다 — 종목을 안 가리는 지표만 쓴다.
-export const DEFAULT_COLS = ["득점 기대값", "실점 기대값", "역전 빈도", "리드 유지율"];
+export const DEFAULT_COLS = ["득점 기대값", "실점 기대값", "역전 빈도", "오늘의 운세"];
+
+/** 경기 상세는 세부 지표로 시작한다 — 종목이 정해져 있으니 바로 들어갈 수 있다. */
+export const DETAIL_COLS: Record<Sport, string[]> = {
+  "축구": ["유효슈팅", "점유율", "코너킥", "전반 득점"],
+  "야구": ["안타", "삼진", "홈런", "실책"],
+  "농구": ["리바운드", "어시스트", "3점 성공률", "턴오버"],
+};
 
 const fits = (s: Sport | "all", sport?: Sport | null) => s === "all" || !sport || s === sport;
 
@@ -133,10 +154,20 @@ export function globalPlayers(): string[] {
   return GLOBAL_PLAYERS;
 }
 
-export function catalogFor(kind: AxisKind, players?: string[], sport?: Sport | null): Group[] {
+/**
+ * 행/열 카탈로그.
+ * 경기 안인지(level="detail") 메인인지(level="top")에 따라 다루는 층위가 다르다.
+ * 메인에서 코너킥까지 고르게 하면 격자가 분석표가 되고, 경기 안에서 기대값만
+ * 보여주면 들어온 보람이 없다. 상위 축은 양쪽 모두에서 쓸 수 있다.
+ */
+export function catalogFor(
+  kind: AxisKind, players?: string[], sport?: Sport | null, level: AxisLevel = "top"
+): Group[] {
+  const inLevel = (l: AxisLevel) => level === "detail" || l === "top";
+
   if (kind === "col") {
     return Object.entries(COL_DEF)
-      .filter(([, g]) => fits(g.sport, sport))
+      .filter(([, g]) => fits(g.sport, sport) && inLevel(g.level))
       .map(([category, g]) => ({
         category,
         items: Object.keys(g.metrics).map((n) => mk(n, category, "col")),
@@ -156,7 +187,7 @@ export function catalogFor(kind: AxisKind, players?: string[], sport?: Sport | n
     });
   }
   for (const [category, g] of Object.entries(ROW_DEF)) {
-    if (!fits(g.sport, sport)) continue;
+    if (!fits(g.sport, sport) || !inLevel(g.level)) continue;
     const items = (category === "팀" && sport ? TEAMS[sport] : g.items).map((n) => mk(n, category, "row"));
     if (items.length) out.push({ category, items });
   }

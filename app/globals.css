@@ -464,3 +464,10 @@ button { font-family: inherit; }
 .tier.t-r { background: #e3f0f4; color: #16627a; }   /* 희귀 */
 .tier.t-e { background: #ece2f7; color: #5b3a93; }   /* 영웅 */
 .tier.t-l { background: #fdf0d8; color: var(--amber-deep); }   /* 전설 */
+
+/* ── 문장 제목 — 조각 이름은 한 줄에 안 들어간다 ───────── */
+.sheet .shead.stack { align-items: flex-start; }
+.sheet .bname.wrap {
+  white-space: normal; line-height: 1.45; word-break: keep-all;
+  max-width: calc(100% - 72px);
+}
