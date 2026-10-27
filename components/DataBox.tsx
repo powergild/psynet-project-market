@@ -23,8 +23,6 @@ type Formula = { rowId: string; colId: string; title: string; base: string; term
 type CellRec = { rowId: string; colId: string; row: string; col: string; offer: AxisOffer & { hit: number } };
 type Dialog = { msg: string; cost: string; ok: string; run: () => void };
 
-const TIER_CLASS: Record<string, string> = { "희귀": "r", "영웅": "e", "전설": "l" };
-
 const uid = () => Math.random().toString(36).slice(2, 9);
 const ck = (r: string, c: string) => `${r}::${c}`;
 
@@ -70,7 +68,6 @@ export default function DataBox({
   const [glow, setGlow] = useState<Glow | null>(null);
   const [tiers, setTiers] = useState<Record<string, TierInfo>>({});
   const [glowing, setGlowing] = useState(false);
-  const [rate, setRate] = useState<number | null>(null);
   const [formula, setFormula] = useState<Formula | null>(null);
   const [cellRec, setCellRec] = useState<CellRec | null>(null);
   const [ghost, setGhost] = useState<AxisOffer | null>(null);
@@ -111,24 +108,31 @@ export default function DataBox({
       setPending(new Set(pairs.map((p) => ck(p.row.id, p.col.id))));
 
       // 서버가 통째로 실패해도 칸을 비워두지 않는다 — "—"여야 재시도 대상으로 집계된다.
-      const dash = pairs.map((p) => ({ rowId: p.row.id, colId: p.col.id, value: NO_VALUE }));
-      let out: { rowId: string; colId: string; value: string }[] = dash;
-      try {
-        const res = await fetch("/api/cells", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            matchId,
-            cond,
-            pairs: pairs.map((p) => ({
-              row: { id: p.row.id, name: p.row.ax, ctx: p.row.ctx, src: p.row.src },
-              col: { id: p.col.id, name: p.col.ax, ctx: p.col.ctx, src: p.col.src },
-            })),
-          }),
-        });
-        const d = await res.json();
-        if (d.ok) out = d.cells;
-      } catch { /* 배너가 안내한다 — 토스트는 사라져서 재시도 경로가 안 남는다 */ }
+      const out: { rowId: string; colId: string; value: string }[] = [];
+      const CHUNK = 120;   // API 상한보다 낮게. 한 번에 넘기면 요청 전체가 거절된다.
+
+      for (let i = 0; i < pairs.length; i += CHUNK) {
+        const part = pairs.slice(i, i + CHUNK);
+        let got: { rowId: string; colId: string; value: string }[] =
+          part.map((p) => ({ rowId: p.row.id, colId: p.col.id, value: NO_VALUE }));
+        try {
+          const res = await fetch("/api/cells", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              matchId,
+              cond,
+              pairs: part.map((p) => ({
+                row: { id: p.row.id, name: p.row.ax, ctx: p.row.ctx, src: p.row.src },
+                col: { id: p.col.id, name: p.col.ax, ctx: p.col.ctx, src: p.col.src },
+              })),
+            }),
+          });
+          const d = await res.json();
+          if (d.ok) got = d.cells;
+        } catch { /* 배너가 안내한다 — 토스트는 사라져서 재시도 경로가 안 남는다 */ }
+        out.push(...got);
+      }
 
       const step = out.length > 12 ? 18 : 55;   // 순차로 확정되는 과정 자체가 제품 설명이 된다
       for (const cell of out) {
@@ -187,8 +191,16 @@ export default function DataBox({
     const heads = Array.from(table.querySelectorAll("thead th")) as HTMLElement[];
     const colW = Math.max(82, ...heads.slice(1, -1).map((e) => e.offsetWidth));
 
-    const addR = Math.max(0, Math.floor((wrap.clientHeight - table.offsetHeight) / rowH));
-    const addC = Math.max(0, Math.floor((wrap.clientWidth - table.offsetWidth) / colW));
+    // 상한을 둔다. 측정이 어긋나도 격자가 폭주하지 않아야 한다.
+    const MAX_ROWS = 16, MAX_COLS = 8;
+    const addR = Math.max(0, Math.min(
+      MAX_ROWS - rows.length,
+      Math.floor((wrap.clientHeight - table.offsetHeight) / rowH)
+    ));
+    const addC = Math.max(0, Math.min(
+      MAX_COLS - cols.length,
+      Math.floor((wrap.clientWidth - table.offsetWidth) / colW)
+    ));
 
     const used = new Set([...rows, ...cols].map((a) => a.ax));
     const pool = (kind: AxisKind, n: number) =>
@@ -235,7 +247,6 @@ export default function DataBox({
           (d.tiers ?? []).map((t: TierInfo & { rowId: string; colId: string }) =>
             [ck(t.rowId, t.colId), { tier: t.tier, trust: t.trust, scored: t.scored }])
         ));
-        setRate(d.record?.rate ?? null);
         // F-20 격자 하단 추천 행 — 내가 아직 안 가진 축 하나
         const mine = [...rows, ...cols].map((a) => a.ax).filter(Boolean) as string[];
         setGhost(recommendAxis(mine, matchId));
@@ -459,7 +470,6 @@ export default function DataBox({
           <Grid
             rows={rows} cols={cols} cells={cells} pending={pending} scope={scope}
             glowIds={glow?.cells.map((g) => ck(g.rowId, g.colId)) ?? []}
-            tiers={tiers}
             dim={!!glow && glow.cells.length > 0}
             ghost={ghost}
             onPickTarget={(t) => { setTarget(t); setQ(""); }}
@@ -468,19 +478,9 @@ export default function DataBox({
             onGhost={() => ghost && buyAxis(ghost, "내 박스에 추가합니다.")}
           />
         </div>
-        <p className="note">
-          셀은 <b>그 기준이 유리할 확률(승률)</b>입니다. 행=기준, 열=지표.
-          셀을 누르면 계산식을, 헤더를 누르면 축을 바꿀 수 있습니다.
-        </p>
+
       </div>
 
-      <div className="actionbar">
-        <span className="scobadge" title="SCO 지갑">{sco} SCO</span>
-        {rate !== null && <span className="chip amber">적중 {rate}%</span>}
-        <span className="spacer" />
-        <button className="btn" onClick={() => setSetup(true)}>다시 설정</button>
-        <button className="btn pri" onClick={() => { void compute(rows, cols); }}>다시 계산</button>
-      </div>
 
       {/* ── 축 선택 시트 ── */}
       {target && (
@@ -682,10 +682,10 @@ function openFormulaById(
 
 /* ── 격자 ───────────────────────────────────────────── */
 function Grid({
-  rows, cols, cells, pending, scope, glowIds, tiers, dim, ghost, onPickTarget, onAdd, onCell, onGhost,
+  rows, cols, cells, pending, scope, glowIds, dim, ghost, onPickTarget, onAdd, onCell, onGhost,
 }: {
   rows: Axis[]; cols: Axis[]; cells: Record<string, string>; pending: Set<string>;
-  scope: string | null; glowIds: string[]; tiers: Record<string, TierInfo>;
+  scope: string | null; glowIds: string[];
   dim: boolean; ghost: AxisOffer | null;
   onPickTarget: (t: Target) => void;
   onAdd: (kind: AxisKind) => void;
@@ -730,16 +730,13 @@ function Grid({
               const v = cells[k];
               if (v === undefined) return <td key={c.id} className="void" />;
               const lit = glowIds.includes(k);
-              const t = tiers[k];
               const cls = [v === NO_VALUE ? "empty" : "", lit ? "glow" : "", dim && !lit ? "dim" : ""]
                 .filter(Boolean).join(" ");
+              // 격자에는 숫자만 둔다. 등급·성적은 셀을 눌렀을 때 보여준다 —
+              // 배지를 얹으면 읽어야 할 것이 늘고, 승률 옆의 작은 글자는 숫자를 방해한다.
               return (
                 <td key={c.id} className={cls} onClick={() => v !== NO_VALUE && onCell(r, c)}>
                   <span className="v num">{v}</span>
-                  {/* 등급은 검증된 조각에만 붙인다 — 전부 "일반"이면 격자가 배지로 뒤덮인다 */}
-                  {t && t.tier !== "일반" && (
-                    <span className={`tier t-${TIER_CLASS[t.tier] ?? "n"}`}>{t.tier}</span>
-                  )}
                 </td>
               );
             })}
