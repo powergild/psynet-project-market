@@ -14,6 +14,8 @@ import { supabase } from "@/lib/supabase";
 import { NO_VALUE, UNKNOWN, condParts } from "@/lib/axes";
 import { deriveConditioned } from "@/lib/estimator";
 import { promptLineOf } from "@/lib/sentence";
+import { FORTUNE_COLS, computeFortune } from "@/lib/fortune";
+import { birthOf } from "@/lib/people";
 // cliEngine은 node:child_process를 쓴다. 정적 import하면 Node 런타임이 아닌 호스팅으로
 // 옮길 수 없고 번들도 무거워진다. 켜져 있을 때만 동적으로 불러온다.
 const cliOn = () => process.env.CLAUDE_CLI === "1";
@@ -42,6 +44,8 @@ export type MatchContext = {
   home: string;
   away: string;
   status: string;
+  startsAt?: string;    // 운세는 날짜로 계산한다
+  weather?: string;     // 날씨 궁합의 입력
 } | null;
 
 /** 전역 조합 캐시 키. 박스가 달라도 같은 조합이면 재사용(F-03). wr2 = 승률 체계. */
@@ -264,6 +268,32 @@ export async function computeCells(
 
   const keys = reqs.map((r) => comboKey(r.row, r.col, cond));
 
+  /* 재미 지표(운세·궁합·징크스)는 **규칙으로 계산한다.** AI에게 물으면 매번 다른 숫자를
+     지어낼 뿐이고 그건 재미도 데이터도 아니다. 생년월일이 없으면 계산할 수 없으므로
+     "—"가 되고 데이터 요청으로 간다 — 지어내지 않는다는 원칙은 여기에도 적용된다. */
+  const fortune = new Map<number, string>();
+  if (ctx) {
+    const fctx = {
+      at: new Date(ctx.startsAt ?? Date.now()),
+      weather: ctx.weather ?? "",
+      opponent: ctx.away ?? "",
+    };
+    reqs.forEach((r, i) => {
+      if (!FORTUNE_COLS.has(r.col.name)) return;
+      const birth = birthOf(r.row.name);
+      fortune.set(i, (birth && computeFortune(r.col.name, birth, fctx)) || UNKNOWN);
+    });
+  } else {
+    reqs.forEach((r, i) => {
+      if (!FORTUNE_COLS.has(r.col.name)) return;
+      const birth = birthOf(r.row.name);
+      const f = birth
+        ? computeFortune(r.col.name, birth, { at: new Date(), weather: "맑음", opponent: "" })
+        : null;
+      fortune.set(i, f || UNKNOWN);
+    });
+  }
+
   // 조건이 걸렸으면 조건 없는 기준값도 함께 읽는다 — 그걸로 유도되면 AI를 부르지 않는다.
   const parts = condParts(cond);
   const baseKeys = parts.length ? reqs.map((r) => comboKey(r.row, r.col, "")) : [];
@@ -283,7 +313,7 @@ export async function computeCells(
 
   const missIdx: number[] = [];
   reqs.forEach((_, i) => {
-    if (!cached.has(keys[i]) && !derived.has(i)) missIdx.push(i);
+    if (!cached.has(keys[i]) && !derived.has(i) && !fortune.has(i)) missIdx.push(i);
   });
 
   const aiVals = missIdx.length
@@ -292,6 +322,14 @@ export async function computeCells(
 
   const fresh: { combo_key: string; value: string }[] = [];
   const results: CellResult[] = reqs.map((r, i) => {
+    // 규칙으로 계산되는 칸은 캐시보다 먼저다 — 날짜가 바뀌면 값도 바뀌어야 한다.
+    const f = fortune.get(i);
+    if (f !== undefined) {
+      return f === UNKNOWN
+        ? { rowId: r.row.id, colId: r.col.id, value: UNKNOWN, from: "unknown" }
+        : { rowId: r.row.id, colId: r.col.id, value: f, from: "derived" };
+    }
+
     const hit = cached.get(keys[i]);
     if (hit !== undefined) return { rowId: r.row.id, colId: r.col.id, value: hit, from: "cache" };
 
@@ -341,6 +379,9 @@ function findCopied(reqs: CellRequest[], results: CellResult[]): Set<number> {
   const byCol = new Map<string, Map<string, number[]>>();
   results.forEach((r, i) => {
     if (r.value === UNKNOWN || r.value === NO_VALUE) return;
+    // 규칙으로 계산되는 열은 제외한다. 날씨 궁합은 같은 별자리 원소면 **원래 같은 값**이라
+    // 겹치는 게 정상이다. 복사 탐지는 "모델이 지어냈는가"를 보는 장치지 규칙을 의심하는 게 아니다.
+    if (FORTUNE_COLS.has(reqs[i]?.col.name ?? "")) return;
     const col = reqs[i]?.col.name ?? "";
     if (!byCol.has(col)) byCol.set(col, new Map());
     const m = byCol.get(col)!;

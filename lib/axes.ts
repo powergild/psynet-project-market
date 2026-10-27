@@ -82,7 +82,9 @@ export type AxisLevel = "top" | "detail";
 const COL_DEF: Record<string, { sport: Sport | "all"; level: AxisLevel; metrics: Record<string, AxisFormat> }> = {
   "기대값":    { sport: "all", level: "top", metrics: { "득점 기대값": "dec", "실점 기대값": "dec" } },
   "흐름":      { sport: "all", level: "top", metrics: { "역전 빈도": "pct", "리드 유지율": "pct", "연장 승부 이력": "pct" } },
-  // 재미 지표 — 근거가 약한 대신 읽는 재미가 있다. 메인에서만 쓴다.
+  // 숫자로 안 잡히는 변수들. 경기 밖에서 벌어진 일이 경기 안을 흔든다.
+  "변수":      { sport: "all", level: "top", metrics: { "감독 교체 효과": "pct", "최근 이슈": "pct", "부상 여파": "pct", "이적 적응": "pct" } },
+  // 재미 지표 — 생년월일에서 규칙으로 계산한다(AI를 타지 않는다).
   "재미":      { sport: "all", level: "top", metrics: { "오늘의 운세": "pct", "날씨 궁합": "pct", "징크스": "pct", "요일 운": "pct" } },
   "축구 기록": { sport: "축구", level: "detail", metrics: { "점유율": "pct", "슈팅 수": "int", "유효슈팅": "int", "코너킥": "int", "PK 성공률": "pct", "세트피스 비중": "pct", "전반 득점": "dec", "후반 득점": "dec", "파울 수": "int", "경고 누적": "int" } },
   "야구 기록": { sport: "야구", level: "detail", metrics: { "안타": "int", "도루": "int", "실책": "int", "삼진": "int", "볼넷": "int", "타율": "dec", "홈런": "int", "평균자책점": "dec" } },

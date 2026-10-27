@@ -44,7 +44,10 @@ export async function POST(req: NextRequest) {
   let ctx: MatchContext = null;
   if (scope === "match" && body?.matchId) {
     const m = await getMatchSource().getMatch(body.matchId);
-    if (m) ctx = { sport: m.sport, league: m.league, home: m.home, away: m.away, status: m.status };
+    if (m) ctx = {
+      sport: m.sport, league: m.league, home: m.home, away: m.away, status: m.status,
+      startsAt: m.startsAt, weather: m.weather,
+    };
   }
 
   let res;

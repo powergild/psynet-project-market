@@ -37,6 +37,7 @@ export async function POST(req: NextRequest) {
 
   const ctx: MatchContext = {
     sport: m.sport, league: m.league, home: m.home, away: m.away, status: m.status,
+    startsAt: m.startsAt, weather: m.weather,
   };
 
   try {
