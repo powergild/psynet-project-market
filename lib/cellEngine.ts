@@ -12,7 +12,8 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { supabase } from "@/lib/supabase";
 import { NO_VALUE, UNKNOWN, condParts } from "@/lib/axes";
-import { deriveConditioned } from "@/lib/estimator";
+import { deriveConditioned, applyObserved } from "@/lib/estimator";
+import { pieceStatsMany, pieceId } from "@/lib/pieces";
 import { promptLineOf } from "@/lib/sentence";
 import { FORTUNE_COLS, computeFortune } from "@/lib/fortune";
 import { birthOf } from "@/lib/people";
@@ -49,11 +50,13 @@ export type MatchContext = {
 } | null;
 
 /** 전역 조합 캐시 키. 박스가 달라도 같은 조합이면 재사용(F-03). wr2 = 승률 체계. */
-export function comboKey(row: AxisRef, col: AxisRef, cond: Condition = ""): string {
+export function comboKey(row: AxisRef, col: AxisRef, cond: Condition = "", day = ""): string {
   const r = `${row.name}|${row.ctx ?? ""}|${row.src ?? ""}`;
   const c = `${col.name}|${col.ctx ?? ""}|${col.src ?? ""}`;
+  // 날짜는 재미 열에만 붙는다. 운세는 날마다 달라야 하므로 날짜가 키의 일부다.
+  const d = day ? `#${day}` : "";
   // 조건이 없으면 접두사를 붙이지 않는다 — 이미 예열해 둔 2,500여 건을 그대로 쓰기 위해서다.
-  return cond ? `wr2@${cond}:${r} :: ${c}` : `wr2:${r} :: ${c}`;
+  return cond ? `wr2${d}@${cond}:${r} :: ${c}` : `wr2${d}:${r} :: ${c}`;
 }
 
 function hash(s: string): number {
@@ -266,7 +269,11 @@ export async function computeCells(
 ): Promise<CellResult[]> {
   if (!reqs.length) return [];
 
-  const keys = reqs.map((r) => comboKey(r.row, r.col, cond));
+  // 재미 열은 날짜가 키에 들어간다 — 오늘 값은 캐시하되 내일은 새로 뽑는다.
+  const today = new Date().toISOString().slice(0, 10);
+  const dayOf = (i: number) => (FORTUNE_COLS.has(reqs[i].col.name) ? today : "");
+
+  const keys = reqs.map((r, i) => comboKey(r.row, r.col, cond, dayOf(i)));
 
   /* 재미 지표(운세·궁합·징크스)는 **규칙으로 계산한다.** AI에게 물으면 매번 다른 숫자를
      지어낼 뿐이고 그건 재미도 데이터도 아니다. 생년월일이 없으면 계산할 수 없으므로
@@ -281,22 +288,23 @@ export async function computeCells(
     reqs.forEach((r, i) => {
       if (!FORTUNE_COLS.has(r.col.name)) return;
       const birth = birthOf(r.row.name);
-      fortune.set(i, (birth && computeFortune(r.col.name, birth, fctx)) || UNKNOWN);
+      const f = birth && computeFortune(r.col.name, birth, fctx);
+      if (f) fortune.set(i, f);     // 생년월일이 없으면 AI가 채운다(날짜별로 캐시된다)
     });
   } else {
+    const at = new Date();
     reqs.forEach((r, i) => {
       if (!FORTUNE_COLS.has(r.col.name)) return;
       const birth = birthOf(r.row.name);
-      const f = birth
-        ? computeFortune(r.col.name, birth, { at: new Date(), weather: "맑음", opponent: "" })
-        : null;
-      fortune.set(i, f || UNKNOWN);
+      const f = birth && computeFortune(r.col.name, birth, { at, weather: "맑음", opponent: "" });
+      if (f) fortune.set(i, f);
     });
   }
 
+
   // 조건이 걸렸으면 조건 없는 기준값도 함께 읽는다 — 그걸로 유도되면 AI를 부르지 않는다.
   const parts = condParts(cond);
-  const baseKeys = parts.length ? reqs.map((r) => comboKey(r.row, r.col, "")) : [];
+  const baseKeys = parts.length ? reqs.map((r, i) => comboKey(r.row, r.col, "", dayOf(i))) : [];
   const cached = await readCache(Array.from(new Set([...keys, ...baseKeys])));
 
   // 엔진이 유도할 수 있는 칸은 AI 대상에서 뺀다.
@@ -322,13 +330,9 @@ export async function computeCells(
 
   const fresh: { combo_key: string; value: string }[] = [];
   const results: CellResult[] = reqs.map((r, i) => {
-    // 규칙으로 계산되는 칸은 캐시보다 먼저다 — 날짜가 바뀌면 값도 바뀌어야 한다.
+    // 규칙으로 계산되는 칸은 캐시보다 먼저다 — 계산이 공짜라 캐시할 이유가 없다.
     const f = fortune.get(i);
-    if (f !== undefined) {
-      return f === UNKNOWN
-        ? { rowId: r.row.id, colId: r.col.id, value: UNKNOWN, from: "unknown" }
-        : { rowId: r.row.id, colId: r.col.id, value: f, from: "derived" };
-    }
+    if (f !== undefined) return { rowId: r.row.id, colId: r.col.id, value: f, from: "derived" };
 
     const hit = cached.get(keys[i]);
     if (hit !== undefined) return { rowId: r.row.id, colId: r.col.id, value: hit, from: "cache" };
@@ -365,7 +369,20 @@ export async function computeCells(
   const dedup = new Map(fresh.map((f) => [f.combo_key, f]));
   await writeCache(Array.from(dedup.values()));
 
-  return results;
+  /* 관측 보정 — 엔진이 AI에서 독립하는 지점.
+     캐시에는 **시작값(prior)** 을 저장하고, 그 조각이 실제로 맞았는지는 따로 쌓인다.
+     돌려줄 때 그 성적으로 값을 당긴다. 표본이 쌓일수록 관측이 추정을 이긴다.
+     보정값을 캐시하지 않는 이유: 관측은 경기마다 달라지는데 캐시는 고정이기 때문이다. */
+  const stats = await pieceStatsMany(
+    reqs.map((r) => ({ cond, row: r.row.name, col: r.col.name }))
+  );
+  return results.map((res, i) => {
+    if (res.value === UNKNOWN || res.value === NO_VALUE) return res;
+    const s = stats.get(pieceId({ cond, row: reqs[i].row.name, col: reqs[i].col.name }));
+    if (!s?.scored) return res;
+    const adjusted = applyObserved(res.value, { scored: s.scored, hits: s.hits });
+    return adjusted === res.value ? res : { ...res, value: adjusted };
+  });
 }
 
 /**
