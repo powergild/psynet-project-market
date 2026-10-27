@@ -246,21 +246,7 @@ async function aiCompute(
       if (v) got.push({ i: cell.i, v });
     }
 
-    // 모델이 모른다고 말하지 않고 같은 값을 복사해 놓는 경우가 있다(일본 야구 선수 4명이
-    // 전부 47.0%였다). 같은 열에서 세 칸 이상 값이 똑같으면 정보가 없다는 뜻으로 본다.
-    const byCol = new Map<string, { i: number; v: string }[]>();
-    for (const g of got) {
-      const col = reqs[g.i]?.col.name ?? "";
-      if (!byCol.has(col)) byCol.set(col, []);
-      byCol.get(col)!.push(g);
-    }
-    const copied = new Set<number>();
-    for (const list of byCol.values()) {
-      const n = new Map<string, number[]>();
-      for (const g of list) { if (!n.has(g.v)) n.set(g.v, []); n.get(g.v)!.push(g.i); }
-      for (const idxs of n.values()) if (idxs.length >= 3) idxs.forEach((i) => copied.add(i));
-    }
-    for (const g of got) out.set(g.i, copied.has(g.i) ? UNKNOWN : g.v);
+    for (const g of got) out.set(g.i, g.v);
   } catch {
     /* 형식이 깨졌으면 산출 실패로 다룬다 */
   }
@@ -327,10 +313,50 @@ export async function computeCells(
     return { rowId: r.row.id, colId: r.col.id, value: ai, from: "ai" };
   });
 
+  // 같은 열에서 세 칸 이상 값이 똑같으면 정보가 없다는 뜻이다. 모델이 모르는 대상에
+  // 같은 값을 복사해 넣은 것이다(일본 야구 선수 4명이 전부 47.0%였다).
+  // **캐시에서 온 값도 거른다** — 탐지 전에 들어간 값이 캐시에 그대로 남아 있기 때문이다.
+  const copied = findCopied(reqs, results);
+  if (copied.size) {
+    for (const i of copied) {
+      results[i] = { ...results[i], value: UNKNOWN, from: "unknown" };
+      fresh.push({ combo_key: keys[i], value: UNKNOWN });   // 캐시도 덮어 다시 안 걸리게 한다
+    }
+  }
+
   const dedup = new Map(fresh.map((f) => [f.combo_key, f]));
   await writeCache(Array.from(dedup.values()));
 
   return results;
+}
+
+/**
+ * 복사된 값 찾기.
+ * 서로 다른 주체(행)에 같은 값이 세 번 이상 붙으면 그건 산출이 아니라 복사다.
+ * 소수점 한 자리까지 정확히 겹칠 확률은 낮으므로, 겹치면 정보가 없다고 본다.
+ */
+const COPY_THRESHOLD = 3;
+
+function findCopied(reqs: CellRequest[], results: CellResult[]): Set<number> {
+  const byCol = new Map<string, Map<string, number[]>>();
+  results.forEach((r, i) => {
+    if (r.value === UNKNOWN || r.value === NO_VALUE) return;
+    const col = reqs[i]?.col.name ?? "";
+    if (!byCol.has(col)) byCol.set(col, new Map());
+    const m = byCol.get(col)!;
+    if (!m.has(r.value)) m.set(r.value, []);
+    m.get(r.value)!.push(i);
+  });
+
+  const out = new Set<number>();
+  for (const m of byCol.values()) {
+    for (const idxs of m.values()) {
+      // 같은 행 이름이 여러 번 들어온 경우는 빼고, 서로 다른 주체끼리만 센다.
+      const subjects = new Set(idxs.map((i) => reqs[i]?.row.name));
+      if (subjects.size >= COPY_THRESHOLD) idxs.forEach((i) => out.add(i));
+    }
+  }
+  return out;
 }
 
 /* ── F-05 경기 맥락 발광 ───────────────────────────────────

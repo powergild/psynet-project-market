@@ -417,7 +417,7 @@ export default function DataBox({
         setCells((p) => ({ ...p, [ck(r.id, c.id)]: d.value }));
         say("값을 찾았습니다.");
       } else {
-        say("아직 데이터가 없습니다. 요청이 접수됐습니다.");
+        say("데이터를 요청했습니다.");
       }
     } catch { say("요청에 실패했습니다."); }
     setAsking(false);
@@ -437,13 +437,6 @@ export default function DataBox({
     }
     openFormula(r, c);
   };
-
-  // 계산하지 못한 칸. 값이 "—"면 산출 실패다 — 지어낸 숫자로 메우지 않으므로 여기서 다시 잡는다.
-  const failedCount = rows.reduce(
-    (n, r) => n + cols.filter((c) => r.ax && c.ax && cells[ck(r.id, c.id)] === NO_VALUE).length, 0
-  );
-  const retryFailed = () =>
-    void compute(rows, cols, (r, c) => cells[ck(r.id, c.id)] === NO_VALUE);
 
   // 메인은 상위 개념, 경기 상세는 세부 지표까지 — 다루는 층위가 다르다.
   const level = match ? "detail" : "top";
@@ -481,11 +474,6 @@ export default function DataBox({
 
       {pending.size > 0 && <div className="statusline">셀을 채우는 중 · {pending.size}칸 남음</div>}
       {!pending.size && glowing && <div className="statusline">이 경기를 읽는 중…</div>}
-      {!pending.size && failedCount > 0 && (
-        <button className="retrybar" onClick={retryFailed}>
-          {failedCount}칸을 계산하지 못했습니다 <span className="cost">다시 시도</span>
-        </button>
-      )}
       {!pending.size && !glowing && glow && (
         <div className={`statusline${glow.cells.length ? "" : " soft"}`}>
           {!glow.ok
@@ -573,15 +561,10 @@ export default function DataBox({
               <span className="spacer" />
               <button className="btn" onClick={() => setAsk(null)}>닫기</button>
             </div>
-            <p className="shint">
-              이 조합은 아직 <b>데이터가 없습니다.</b> 모르는 대상에 그럴듯한 숫자를 붙이지
-              않으려고 비워둡니다. 요청하시면 다시 한 번 찾아보고,
-              그래도 없으면 <b>연동 우선순위</b>에 쌓입니다.
-            </p>
+            {/* 설명을 붙이지 않는다. 문장과 버튼 하나면 무엇을 하는지 알 수 있다. */}
             <div className="sfoot">
-              <span className="spacer" />
-              <button className="btn pri" disabled={asking} onClick={() => { void requestInfo(); }}>
-                {asking ? "찾아보는 중…" : "정보 요청하기"}
+              <button className="btn pri grow" disabled={asking} onClick={() => { void requestInfo(); }}>
+                {asking ? "찾아보는 중…" : "데이터 요청하기"}
               </button>
             </div>
           </div>
