@@ -13,6 +13,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { supabase } from "@/lib/supabase";
 import { NO_VALUE, condParts } from "@/lib/axes";
 import { deriveConditioned } from "@/lib/estimator";
+import { promptLineOf } from "@/lib/sentence";
 // cliEngine은 node:child_process를 쓴다. 정적 import하면 Node 런타임이 아닌 호스팅으로
 // 옮길 수 없고 번들도 무거워진다. 켜져 있을 때만 동적으로 불러온다.
 const cliOn = () => process.env.CLAUDE_CLI === "1";
@@ -141,14 +142,15 @@ const CELL_SCHEMA = {
 
 const CELL_EXAMPLE = `{"cells":[{"i":0,"winRate":58.4},{"i":1,"winRate":41.2}]}`;
 
-const SYSTEM = `너는 스포츠 예측 엔진이다. "기준 × 지표" 교차마다 **승률 하나**를 산출한다.
+const SYSTEM = `너는 스포츠 예측 엔진이다. **질문 문장마다 확률 하나**를 산출한다.
 
-읽는 법: 각 항목은 "기준 × 지표"다.
-- 기준 = 누구를/어떤 조건을 보는가 (홈팀, 강수량, 주전 공격수, 휴식일 수 …)
-- 지표 = 어떤 관점으로 재는가 (득점 기대값, 점유율, 역전 빈도 …)
-- 산출값 = **그 지표 관점에서 봤을 때 그 기준이 유리할 확률(승률)**
-  예: "홈팀 × 득점 기대값" → 득점 기대값만 놓고 보면 홈팀이 이길 확률
-  예: "강수량 × 유효슈팅" → 비가 오는 조건에서 유효슈팅 관점의 승률
+각 항목은 완성된 질문이다. 그 문장이 묻는 것에 그대로 답하면 된다.
+  "비일 때, 음바페가 득점에서 앞설 확률"           → 58.4
+  "최근 5경기 폼만 놓고 보면 홈팀이 ~할 확률"      → 54.0
+  "모로코가 파울을 덜 범할 확률"                   → 44.0
+
+문장은 모두 **높을수록 그 주체에게 유리**하도록 쓰여 있다. 파울·실책처럼 많을수록
+불리한 것은 "덜 범할"로 뒤집혀 있으니 문장 그대로 읽어라.
 
 가장 중요한 원칙: 너는 **추정치를 만들어내는 엔진**이다. 실제 DB를 조회하는 것이 아니라,
 스포츠 도메인 지식에 근거해 그럴듯한 승률을 산출한다. "데이터가 없다"는 이유로 비우지 마라.
@@ -156,8 +158,10 @@ const SYSTEM = `너는 스포츠 예측 엔진이다. "기준 × 지표" 교차�
 출력 규칙(엄격히 지킬 것):
 - winRate는 **0~100 사이의 숫자**다. 단위 기호 없이 숫자만. (예: 58.4)
 - 현실적 범위를 지켜라. 보통 **30~72** 안에 들어온다. 5나 97 같은 값은 금지.
-- 기준이 유리하면 50보다 크고, 불리하면 50보다 작다. 전부 50 근처로 몰지 마라 —
-  조합마다 유불리가 다르므로 값도 달라야 한다.
+- **50 근처로 몰지 마라.** 45~55는 "모르겠다"는 뜻이고 그 답은 쓸모가 없다.
+  문장마다 유불리가 분명히 다르므로 값도 분명히 갈려야 한다. 아는 만큼 밀어라.
+- 주체가 그 종목의 강팀·주전이면 올리고 약팀·백업이면 내려라. 문장에 담긴
+  조건(날씨·상황)이 그 주체에게 유리한지 불리한지도 반드시 반영하라.
 - 입력의 각 항목 i를 그대로 돌려주고, cells 배열 길이는 입력 길이와 같아야 한다.`;
 
 /** 모델 응답 정규화. 승률 범위를 벗어나면 null → 호출부가 폴백을 쓴다. */
@@ -212,20 +216,15 @@ async function aiCompute(
   const ctxLine = ctx
     ? `경기 맥락: ${ctx.sport} ${ctx.league} / ${ctx.home} vs ${ctx.away} (${ctx.status})`
     : "경기 맥락: 없음 (일반 지표)";
-  // 조건은 전제다 — "비 올 때"의 승률과 평상시 승률은 다른 값이어야 한다.
-  const condLine = cond
-    ? `전제 조건: **${cond}** 인 경기로 한정한다. 이 조건이 각 주체에게 유리한지 불리한지를 반드시 값에 반영하라.`
-    : "전제 조건: 없음";
 
+  // 문장이 곧 질문이다 — 축 이름만 던지면 모델이 무엇을 재는지 모른 채 50 근처로 답한다.
   const list = reqs
-    .map((r, i) => {
-      const rn = r.row.name + (r.row.ctx ? ` [${r.row.ctx}]` : "");
-      const cn = r.col.name + (r.col.ctx ? ` [${r.col.ctx}]` : "");
-      return `${i}. ${rn} × ${cn}`;
-    })
+    .map((r, i) =>
+      promptLineOf(i, { cond, row: r.row.name, col: r.col.name, scope: r.row.ctx ?? null })
+    )
     .join("\n");
 
-  const raw = await askJson(SYSTEM, `${ctxLine}\n\n교차 목록:\n${list}`, CELL_SCHEMA, CELL_EXAMPLE);
+  const raw = await askJson(SYSTEM, `${ctxLine}\n\n질문:\n${list}`, CELL_SCHEMA, CELL_EXAMPLE);
   if (!raw) return out;
   try {
     const parsed = JSON.parse(raw) as { cells: { i: number; winRate: number }[] };
