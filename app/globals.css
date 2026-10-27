@@ -462,3 +462,6 @@ button { font-family: inherit; }
   white-space: normal; line-height: 1.45; word-break: keep-all;
   max-width: calc(100% - 72px);
 }
+
+/* ── 정보 요청 시트 ─────────────────────────────────── */
+.sheet.asksheet { height: auto; max-height: 70dvh; }

@@ -11,7 +11,7 @@
 
 import Anthropic from "@anthropic-ai/sdk";
 import { supabase } from "@/lib/supabase";
-import { NO_VALUE, condParts } from "@/lib/axes";
+import { NO_VALUE, UNKNOWN, condParts } from "@/lib/axes";
 import { deriveConditioned } from "@/lib/estimator";
 import { promptLineOf } from "@/lib/sentence";
 // cliEngine은 node:child_process를 쓴다. 정적 import하면 Node 런타임이 아닌 호스팅으로
@@ -31,7 +31,9 @@ export type CellRequest = { row: AxisRef; col: AxisRef };
 export type Condition = string;
 export type CellResult = {
   rowId: string; colId: string; value: string;
-  from: "cache" | "derived" | "ai" | "failed";
+  // unknown = 모델이 그 대상을 모른다고 답한 칸. failed(산출 실패)와 다르다 —
+  // 재시도해도 안 나오므로, 재시도 배너가 아니라 "정보 요청" 경로로 보낸다.
+  from: "cache" | "derived" | "ai" | "unknown" | "failed";
 };
 
 export type MatchContext = {
@@ -130,8 +132,12 @@ const CELL_SCHEMA = {
       type: "array",
       items: {
         type: "object",
-        properties: { i: { type: "integer" }, winRate: { type: "number" } },
-        required: ["i", "winRate"],
+        properties: {
+          i: { type: "integer" },
+          winRate: { type: "number" },
+          known: { type: "boolean" },
+        },
+        required: ["i", "winRate", "known"],
         additionalProperties: false,
       },
     },
@@ -145,6 +151,10 @@ const CELL_EXAMPLE = `{"cells":[{"i":0,"winRate":58.4},{"i":1,"winRate":41.2}]}`
 const SYSTEM = `너는 스포츠 예측 엔진이다. **질문 문장마다 확률 하나**를 산출한다.
 
 각 항목은 완성된 질문이다. 그 문장이 묻는 것에 그대로 답하면 된다.
+문장 속 대상(팀·선수)을 **실제로 알지 못하면 known=false로 답하라.** 모르는 대상에
+그럴듯한 숫자를 붙이는 것이 가장 나쁘다 — 지어낸 값과 아는 값이 섞이면 격자 전체를
+믿을 수 없게 된다. 모를 때는 winRate에 50을 넣고 known=false로 둬라.
+**여러 대상에 같은 값을 복사해 넣지 마라.** 그건 모른다는 뜻이고, 그러면 known=false다.
   "비일 때, 음바페가 득점에서 앞설 확률"           → 58.4
   "최근 5경기 폼만 놓고 보면 홈팀이 ~할 확률"      → 54.0
   "모로코가 파울을 덜 범할 확률"                   → 44.0
@@ -227,12 +237,30 @@ async function aiCompute(
   const raw = await askJson(SYSTEM, `${ctxLine}\n\n질문:\n${list}`, CELL_SCHEMA, CELL_EXAMPLE);
   if (!raw) return out;
   try {
-    const parsed = JSON.parse(raw) as { cells: { i: number; winRate: number }[] };
+    const parsed = JSON.parse(raw) as { cells: { i: number; winRate: number; known?: boolean }[] };
+    const got: { i: number; v: string }[] = [];
     for (const cell of parsed.cells ?? []) {
       if (typeof cell.i !== "number" || typeof cell.winRate !== "number") continue;
+      if (cell.known === false) { out.set(cell.i, UNKNOWN); continue; }
       const v = coerce(cell.winRate);
-      if (v) out.set(cell.i, v);
+      if (v) got.push({ i: cell.i, v });
     }
+
+    // 모델이 모른다고 말하지 않고 같은 값을 복사해 놓는 경우가 있다(일본 야구 선수 4명이
+    // 전부 47.0%였다). 같은 열에서 세 칸 이상 값이 똑같으면 정보가 없다는 뜻으로 본다.
+    const byCol = new Map<string, { i: number; v: string }[]>();
+    for (const g of got) {
+      const col = reqs[g.i]?.col.name ?? "";
+      if (!byCol.has(col)) byCol.set(col, []);
+      byCol.get(col)!.push(g);
+    }
+    const copied = new Set<number>();
+    for (const list of byCol.values()) {
+      const n = new Map<string, number[]>();
+      for (const g of list) { if (!n.has(g.v)) n.set(g.v, []); n.get(g.v)!.push(g.i); }
+      for (const idxs of n.values()) if (idxs.length >= 3) idxs.forEach((i) => copied.add(i));
+    }
+    for (const g of got) out.set(g.i, copied.has(g.i) ? UNKNOWN : g.v);
   } catch {
     /* 형식이 깨졌으면 산출 실패로 다룬다 */
   }
@@ -290,6 +318,11 @@ export async function computeCells(
     const pos = missIdx.indexOf(i);
     const ai = pos >= 0 ? aiVals.get(pos) : undefined;
     if (!ai) return { rowId: r.row.id, colId: r.col.id, value: NO_VALUE, from: "failed" };
+    if (ai === UNKNOWN) {
+      // 모른다는 답도 캐시한다 — 다시 물어도 같은 답이고, 안 캐시하면 매번 AI를 태운다.
+      fresh.push({ combo_key: keys[i], value: UNKNOWN });
+      return { rowId: r.row.id, colId: r.col.id, value: UNKNOWN, from: "unknown" };
+    }
     fresh.push({ combo_key: keys[i], value: ai });   // 실패는 캐시하지 않는다 — 재시도가 막힌다
     return { rowId: r.row.id, colId: r.col.id, value: ai, from: "ai" };
   });

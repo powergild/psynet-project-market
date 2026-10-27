@@ -104,6 +104,10 @@ export const CELL_UNIT = "승률(%)";
 /** 산출 실패 표기. 지어낸 숫자보다 빈 값이 낫다 — 유저는 이 값으로 판단을 한다. */
 export const NO_VALUE = "—";
 
+/** 모르는 대상 — 산출 실패와 구분한다. 화면에는 똑같이 "—"로 보이지만,
+ *  실패는 재시도하면 되고 이건 정보가 없는 것이라 요청을 받아야 한다. */
+export const UNKNOWN = "—";
+
 function mk(name: string, category: string, kind: AxisKind, scope: AxisScope = "global"): AxisDef {
   return { name, category, kind, scope };
 }

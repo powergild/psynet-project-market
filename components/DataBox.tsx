@@ -70,6 +70,9 @@ export default function DataBox({
   const [glowing, setGlowing] = useState(false);
   const [formula, setFormula] = useState<Formula | null>(null);
   const [cellRec, setCellRec] = useState<CellRec | null>(null);
+  /** 모르는 대상의 칸. 재시도 대상이 아니라 정보 요청 대상이다. */
+  const [ask, setAsk] = useState<{ r: Axis; c: Axis } | null>(null);
+  const [asking, setAsking] = useState(false);
   const [ghost, setGhost] = useState<AxisOffer | null>(null);
   const [sco, setSco] = useState(120);
   const [dialog, setDialog] = useState<Dialog | null>(null);
@@ -390,7 +393,41 @@ export default function DataBox({
     say(cond ? `조건: ${condParts(cond).join(" + ")}` : "조건을 해제했습니다.");
   };
 
+  /**
+   * 한 칸만 다시 묻는다.
+   * 격자 전체를 한 번에 물으면 모델의 주의가 흩어진다 — 한 칸만 떼어 물으면 달라질 여지가 있다.
+   * 그래도 모른다고 하면 요청으로 쌓이고, 그 목록이 데이터 연동의 우선순위가 된다.
+   */
+  const requestInfo = async () => {
+    if (!ask || asking) return;
+    const { r, c } = ask;
+    setAsking(true);
+    try {
+      const res = await fetch("/api/ask", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          matchId, cond,
+          row: { id: r.id, name: r.ax, ctx: r.ctx, src: r.src },
+          col: { id: c.id, name: c.ax, ctx: c.ctx, src: c.src },
+        }),
+      });
+      const d = await res.json();
+      if (d.ok && d.resolved) {
+        setCells((p) => ({ ...p, [ck(r.id, c.id)]: d.value }));
+        say("값을 찾았습니다.");
+      } else {
+        say("아직 데이터가 없습니다. 요청이 접수됐습니다.");
+      }
+    } catch { say("요청에 실패했습니다."); }
+    setAsking(false);
+    setAsk(null);
+  };
+
   const onCellTap = (r: Axis, c: Axis) => {
+    // 값이 없는 칸은 계산식이 없다. 설명 대신 요청을 받는다.
+    if (cells[ck(r.id, c.id)] === NO_VALUE) { setAsk({ r, c }); return; }
+
     const lit = glow?.cells.some((g) => g.rowId === r.id && g.colId === c.id);
     if (lit && r.ax && c.ax) {
       // 발광 셀은 추천 패널이 우선이다(F-22) — 지금 유효하다고 판단된 지점에서만 더 파고들 이유가 생긴다.
@@ -518,6 +555,34 @@ export default function DataBox({
                   ))}
                 </div>
               ))}
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* ── 정보 요청 — 모르는 대상의 칸 ── */}
+      {ask && (
+        <>
+          <div className="scrim" onClick={() => setAsk(null)} />
+          <div className="sheet asksheet" role="dialog" aria-label="정보 요청">
+            <div className="grab"><i /></div>
+            <div className="shead stack">
+              <span className="bname wrap">
+                {sentenceOf({ cond, row: ask.r.ax ?? "", col: ask.c.ax ?? "" })}
+              </span>
+              <span className="spacer" />
+              <button className="btn" onClick={() => setAsk(null)}>닫기</button>
+            </div>
+            <p className="shint">
+              이 조합은 아직 <b>데이터가 없습니다.</b> 모르는 대상에 그럴듯한 숫자를 붙이지
+              않으려고 비워둡니다. 요청하시면 다시 한 번 찾아보고,
+              그래도 없으면 <b>연동 우선순위</b>에 쌓입니다.
+            </p>
+            <div className="sfoot">
+              <span className="spacer" />
+              <button className="btn pri" disabled={asking} onClick={() => { void requestInfo(); }}>
+                {asking ? "찾아보는 중…" : "정보 요청하기"}
+              </button>
             </div>
           </div>
         </>
@@ -735,7 +800,7 @@ function Grid({
               // 격자에는 숫자만 둔다. 등급·성적은 셀을 눌렀을 때 보여준다 —
               // 배지를 얹으면 읽어야 할 것이 늘고, 승률 옆의 작은 글자는 숫자를 방해한다.
               return (
-                <td key={c.id} className={cls} onClick={() => v !== NO_VALUE && onCell(r, c)}>
+                <td key={c.id} className={cls} onClick={() => onCell(r, c)}>
                   <span className="v num">{v}</span>
                 </td>
               );
