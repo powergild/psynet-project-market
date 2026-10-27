@@ -22,6 +22,10 @@ const FACTOR_ROWS = new Set([
   "최근 5경기 폼", "상대 전적", "선제골 여부", "후반 교체 타이밍",
   "이동 거리", "휴식일 수", "연전 여부", "홈 관중 수",
   "벤치 뎁스", "감독 성향", "핵심 선수 결장", "팀 평균 연령",
+  // 날씨·상황·구장이 행에 오면 주어가 아니라 요인이다 — "비가 앞선다"는 말이 안 된다.
+  "비", "눈", "폭염", "강풍", "한파", "맑음",
+  "추격 중", "리드 중", "라이벌전", "원정 3연전", "주중 경기", "연장 승부",
+  "잔디 불량", "만원 관중", "무관중", "고지대",
 ]);
 
 export function isFactorRow(row: string): boolean {
@@ -78,8 +82,17 @@ const PHRASE: Record<string, string> = {
   "자유투 성공률": "자유투를 살릴",
 };
 
+/** 조건 이름이 열에 오면 "그 상황에 얼마나 강한가"를 묻는 것이다. */
+const ADAPT_COLS = new Set([
+  "비", "눈", "폭염", "강풍", "한파", "맑음",
+  "추격 중", "리드 중", "라이벌전", "원정 3연전", "주중 경기", "연장 승부",
+  "잔디 불량", "만원 관중", "무관중", "고지대",
+]);
+
 export function phraseOf(col: string): string {
-  return PHRASE[col] ?? `${col} 관점에서 앞설`;
+  if (PHRASE[col]) return PHRASE[col];
+  if (ADAPT_COLS.has(col)) return `${col}${josa(col, "에")} 강할`;
+  return `${col} 관점에서 앞설`;
 }
 
 /** 조건 슬롯. 겹친 조건은 "비 오고 라이벌전일 때"처럼 이어 붙인다. */
@@ -108,7 +121,10 @@ function hasCoda(word: string): boolean {
 }
 
 /** 받침에 맞는 조사. josa("음바페","가") → "가", josa("원정팀","가") → "이" */
-export function josa(word: string, kind: "가" | "는" | "를"): string {
+export function josa(word: string, kind: "가" | "는" | "를" | "에"): string {
+  // "비에 강할" / "추격 중에 강할" — 받침과 무관하게 "에"지만,
+  // 끝이 "중"처럼 명사면 그대로, 상태를 뜻하면 "일 때"가 자연스러운 경우가 있다.
+  if (kind === "에") return "에";
   const coda = hasCoda(word);
   if (kind === "가") return coda ? "이" : "가";
   if (kind === "는") return coda ? "은" : "는";

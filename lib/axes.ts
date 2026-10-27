@@ -36,6 +36,13 @@ const ROW_DEF: Record<string, { sport: Sport | "all"; level: AxisLevel; items: s
   "경기 전개": { sport: "all", level: "detail", items: ["선제골 여부", "후반 교체 타이밍"] },
   "팀 특성":  { sport: "all", level: "detail", items: ["주전 공격수", "주전 골키퍼", "벤치 뎁스", "감독 성향", "핵심 선수 결장", "팀 평균 연령"] },
   "팀 상태":  { sport: "all", level: "detail", items: ["이동 거리", "휴식일 수", "연전 여부"] },
+  // 같은 말이 조건·행·열 세 자리에서 각각 다른 뜻이 된다.
+  //   조건  "비일 때, 프랑스가 득점에서 앞설 확률"      전제
+  //   행    "비만 놓고 보면 홈팀이 득점에서 앞설 확률"   요인
+  //   열    "프랑스가 비에 강할 확률"                  적응도
+  "날씨":     { sport: "all", level: "top",    items: ["비", "눈", "폭염", "강풍", "한파", "맑음"] },
+  "상황":     { sport: "all", level: "top",    items: ["추격 중", "리드 중", "라이벌전", "원정 3연전", "주중 경기", "연장 승부"] },
+  "구장":     { sport: "all", level: "detail", items: ["잔디 불량", "만원 관중", "무관중", "고지대"] },
 };
 
 /* ── 조건 ──────────────────────────────────
@@ -82,6 +89,12 @@ export type AxisLevel = "top" | "detail";
 const COL_DEF: Record<string, { sport: Sport | "all"; level: AxisLevel; metrics: Record<string, AxisFormat> }> = {
   "기대값":    { sport: "all", level: "top", metrics: { "득점 기대값": "dec", "실점 기대값": "dec" } },
   "흐름":      { sport: "all", level: "top", metrics: { "역전 빈도": "pct", "리드 유지율": "pct", "연장 승부 이력": "pct" } },
+  // 조건을 지표로 쓰면 "그 상황에 얼마나 강한가"를 묻는 것이 된다.
+  "상황 적응": { sport: "all", level: "top", metrics: {
+    "비": "pct", "눈": "pct", "폭염": "pct", "강풍": "pct", "한파": "pct",
+    "추격 중": "pct", "리드 중": "pct", "라이벌전": "pct", "원정 3연전": "pct",
+    "잔디 불량": "pct", "만원 관중": "pct", "무관중": "pct", "고지대": "pct",
+  } },
   // 숫자로 안 잡히는 변수들. 경기 밖에서 벌어진 일이 경기 안을 흔든다.
   "변수":      { sport: "all", level: "top", metrics: { "감독 교체 효과": "pct", "최근 이슈": "pct", "부상 여파": "pct", "이적 적응": "pct" } },
   // 재미 지표 — 생년월일에서 규칙으로 계산한다(AI를 타지 않는다).
