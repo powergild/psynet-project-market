@@ -17,7 +17,12 @@ export async function ensureBox(boxId: string, owner: string, name: string): Pro
             { onConflict: "id" });
 }
 
-/** 발광 = 예측 선언. 유저 별도 행동 없이 기록된다(기획서 1-5 단계 9). */
+/**
+ * 선언 기록.
+ * 격자에 올린 행·열이 곧 조각이므로, **격자의 모든 셀**이 그 경기의 선언이 된다.
+ * 발광은 그중 "지금 특히 유효한 것"을 골라 표시하는 읽기 보조이지, 선언의 범위가 아니다.
+ * (유저가 따로 장착하는 단계는 없다 — 격자를 편집하는 것이 곧 조각을 고르는 것이다.)
+ */
 export async function recordGlow(
   boxId: string,
   matchId: string,
@@ -25,7 +30,7 @@ export async function recordGlow(
   cands: GlowCandidate[],
   cond = ""
 ): Promise<void> {
-  if (!picks.length) return;
+  if (!cands.length) return;
 
   // 축 id는 박스를 다시 만들 때마다 바뀐다 — unique 제약이 id 기준이라 같은 선언이 중복으로 쌓인다.
   // 다시 분석하면 아직 채점되지 않은 선언은 갈아치운다. 채점된 선언은 건드리지 않는다.
@@ -36,21 +41,18 @@ export async function recordGlow(
     .eq("match_id", matchId)
     .eq("scored", false);
 
-  const byId = new Map(cands.map((c) => [c.rowId + "|" + c.colId, c]));
-  const rows = picks.map((p) => {
-    const c = byId.get(p.rowId + "|" + p.colId);
-    return {
-      box_id: boxId,
-      match_id: matchId,
-      condition: cond,
-      row_axis_id: p.rowId,
-      col_axis_id: p.colId,
-      row_axis_name: c?.row ?? "",
-      col_axis_name: c?.col ?? "",
-      value_at_glow: c?.value ?? "",
-      reason: p.why,
-    };
-  });
+  const why = new Map(picks.map((p) => [p.rowId + "|" + p.colId, p.why]));
+  const rows = cands.map((c) => ({
+    box_id: boxId,
+    match_id: matchId,
+    condition: cond,
+    row_axis_id: c.rowId,
+    col_axis_id: c.colId,
+    row_axis_name: c.row,
+    col_axis_name: c.col,
+    value_at_glow: c.value,
+    reason: why.get(c.rowId + "|" + c.colId) ?? null,   // 발광한 셀만 근거가 붙는다
+  }));
   const conflict = "box_id,match_id,row_axis_id,col_axis_id";
   const { error } = await supabase.from("glow_records").upsert(rows, { onConflict: conflict });
 

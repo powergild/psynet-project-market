@@ -8,7 +8,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
-type Body = { scope?: WarmScope; matchId?: string; offset?: number; limit?: number };
+type Body = { scope?: WarmScope; matchId?: string; cond?: string; offset?: number; limit?: number };
 
 /**
  * 캐시 예열. 표준 조합을 미리 계산해 cell_cache에 깔아둔다.
@@ -49,7 +49,7 @@ export async function POST(req: NextRequest) {
 
   let res;
   try {
-    res = await computeCells(batch, ctx);
+    res = await computeCells(batch, ctx, (body?.cond ?? "").slice(0, 40));
   } catch (e) {
     return NextResponse.json(
       { ok: false, error: e instanceof Error ? e.message : "예열 실패" },

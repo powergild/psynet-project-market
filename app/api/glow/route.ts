@@ -46,32 +46,32 @@ export async function POST(req: NextRequest) {
 
     const glow = await analyzeGlow(cells, ctx);
 
-    if (glow.cells.length) {
-      await ensureBox(boxId, body?.owner || "anon", body?.boxName || "내 박스");
-      await recordGlow(boxId, matchId, glow.cells, cells, cond);
-    }
+    // 격자의 모든 셀이 그 경기의 선언이다 — 발광 여부와 무관하게 성적이 쌓인다.
+    await ensureBox(boxId, body?.owner || "anon", body?.boxName || "내 박스");
+    await recordGlow(boxId, matchId, glow.cells, cells, cond);
 
     // 채점은 기록 뒤에 한다 — 끝난 경기는 방금 한 선언도 바로 채점되어야 한다.
     if (m.status === "finished") {
       await scoreMatch(matchId, m.home, m.scoreHome, m.scoreAway);
     }
 
-    // 발광한 조각들의 누적 성적 — 레벨 배지로 바로 보여준다.
-    const byId = new Map(cells.map((c) => [c.rowId + "|" + c.colId, c]));
-    const keys = glow.cells
-      .map((p) => byId.get(p.rowId + "|" + p.colId))
-      .filter(Boolean)
-      .map((c) => ({ cond, row: c!.row, col: c!.col }));
-    const stats = await pieceStatsMany(keys);
+    // 격자 전체의 등급을 돌려준다 — 모든 셀이 조각이므로 모든 셀에 등급이 붙는다.
+    const stats = await pieceStatsMany(cells.map((c) => ({ cond, row: c.row, col: c.col })));
+    const tiers = cells.map((c) => {
+      const s = stats.get(pieceId({ cond, row: c.row, col: c.col }));
+      return {
+        rowId: c.rowId, colId: c.colId,
+        tier: s?.tier ?? "일반",
+        trust: s?.trust ?? null,
+        scored: s?.scored ?? 0,
+      };
+    });
 
     return NextResponse.json({
       ok: true,
       analyzed: glow.ok,          // false = 분석 자체를 못 했다(빈 결과와 구분해야 한다)
-      cells: glow.cells.map((p) => {
-        const c = byId.get(p.rowId + "|" + p.colId);
-        const s = c ? stats.get(pieceId({ cond, row: c.row, col: c.col })) : undefined;
-        return { ...p, level: s?.level ?? 0, trust: s?.trust ?? null, scored: s?.scored ?? 0 };
-      }),
+      cells: glow.cells,
+      tiers,
       line: glow.line,
       record: await boxRecord(boxId),
     });

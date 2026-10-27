@@ -10,8 +10,35 @@ import { supabase } from "@/lib/supabase";
 import type { Match, MatchStat } from "@/lib/matches";
 import { condParts } from "@/lib/axes";
 
-export const MAX_LEVEL = 10;
-const EXP_PER_LEVEL = 100;
+/* ── 등급 ─────────────────────────────────────────────────
+   레벨 숫자 대신 등급으로 읽는다. 격자 안에서 숫자가 또 하나 늘어나면
+   승률과 섞여 읽히기 때문이다 — 등급은 한눈에 "이 조각이 얼마나 검증됐나"만 말한다.
+
+   쌓인 양(exp)만으로는 오르지 않는다. 보정 적중률이 함께 받쳐줘야 한다 —
+   많이 틀리면서 오래 버틴 조각이 전설이 되면 등급이 거짓말을 한다. */
+export const TIERS = ["일반", "희귀", "영웅", "전설"] as const;
+export type Tier = (typeof TIERS)[number];
+
+const TIER_RULES: { tier: Tier; exp: number; trust: number }[] = [
+  { tier: "전설", exp: 600, trust: 70 },
+  { tier: "영웅", exp: 300, trust: 60 },
+  { tier: "희귀", exp: 100, trust: 50 },
+];
+
+export function tierOf(exp: number, trust: number): Tier {
+  for (const r of TIER_RULES) if (exp >= r.exp && trust >= r.trust) return r.tier;
+  return "일반";
+}
+
+/** 다음 등급까지 얼마나 남았는가. 0~1. */
+export function tierProgress(exp: number, trust: number): number {
+  const cur = tierOf(exp, trust);
+  const i = TIERS.indexOf(cur);
+  if (i >= TIERS.length - 1) return 1;
+  const next = TIER_RULES.find((r) => r.tier === TIERS[i + 1]);
+  if (!next) return 1;
+  return Math.max(0, Math.min(1, exp / next.exp));
+}
 
 export type PieceKey = { cond: string; row: string; col: string };
 
@@ -20,14 +47,11 @@ export type PieceStats = {
   scored: number;        // 채점된 횟수
   hits: number;
   rate: number | null;   // 원시 적중률 (표본이 작으면 믿을 게 못 된다)
-  trust: number;         // 보정 적중률 — 가격·정렬은 이걸 쓴다
+  trust: number;         // 보정 적중률 — 등급·가격은 이걸 쓴다
   exp: number;
-  level: number;
+  tier: Tier;
+  progress: number;      // 다음 등급까지 0~1
 };
-
-export function levelOf(exp: number): number {
-  return Math.min(MAX_LEVEL, Math.floor(exp / EXP_PER_LEVEL));
-}
 
 /**
  * 보정 적중률.
@@ -92,18 +116,22 @@ function aggregate(rows: Row[]): PieceStats {
   const scoredRows = rows.filter((r) => r.scored);
   const hits = scoredRows.filter((r) => r.hit).length;
   const exp = rows.reduce((a, r) => a + (r.exp ?? 0), 0);
+  const trust = Math.round(trustRate(hits, scoredRows.length) * 100);
   return {
     declared: rows.length,
     scored: scoredRows.length,
     hits,
     rate: scoredRows.length ? Math.round((hits / scoredRows.length) * 100) : null,
-    trust: Math.round(trustRate(hits, scoredRows.length) * 100),
+    trust,
     exp,
-    level: levelOf(exp),
+    tier: tierOf(exp, trust),
+    progress: tierProgress(exp, trust),
   };
 }
 
-const EMPTY: PieceStats = { declared: 0, scored: 0, hits: 0, rate: null, trust: 50, exp: 0, level: 0 };
+const EMPTY: PieceStats = {
+  declared: 0, scored: 0, hits: 0, rate: null, trust: 50, exp: 0, tier: "일반", progress: 0,
+};
 
 /** 조각 하나의 누적 성적. 전 유저 공통 — 조각의 성적은 조각의 것이지 박스의 것이 아니다. */
 export async function pieceStats(k: PieceKey): Promise<PieceStats> {
@@ -178,9 +206,12 @@ export async function loadFormula(owner: string, k: PieceKey): Promise<Weights |
 
 /**
  * 조각 가격 (F-10 변동 가격).
- * 레벨이 오르면 비싸지되, **보정 적중률**을 곱해 표본이 얄팍한 100%가 값을 부풀리지 못하게 한다.
+ * 등급이 뼈대고 보정 적중률이 그 안에서 값을 가른다 —
+ * 같은 희귀 등급이라도 더 잘 맞히는 조각이 비싸야 한다.
  */
+const TIER_BASE: Record<Tier, number> = { "일반": 10, "희귀": 30, "영웅": 70, "전설": 150 };
+
 export function priceOfPiece(s: PieceStats): number {
-  const base = 10 + s.level * 6;
-  return Math.max(5, Math.round((base * (0.5 + s.trust / 100)) / 5) * 5);
+  const base = TIER_BASE[s.tier];
+  return Math.max(5, Math.round((base * (0.6 + s.trust / 100)) / 5) * 5);
 }

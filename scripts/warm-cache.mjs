@@ -24,9 +24,9 @@ const bar = (done, total) => {
   return "[" + "#".repeat(n) + "-".repeat(w - n) + "] " + String(Math.floor((done / total) * 100)).padStart(3) + "%";
 };
 
-async function warm(scope, matchId, label) {
+async function warm(scope, matchId, label, cond = "") {
   // 배치를 여러 개 동시에 돌린다. CLI 기동 비용이 대부분이라 병렬로 짧아진다.
-  const probe = await post({ scope, matchId, offset: 0, limit: 1 });
+  const probe = await post({ scope, matchId, cond, offset: 0, limit: 1 });
   if (!probe?.ok) { console.error("  실패:", probe?.error); return null; }
   const total = probe.total;
   if (!total) { console.log(`  ${label} 대상 없음`); return null; }
@@ -43,7 +43,7 @@ async function warm(scope, matchId, label) {
       const offset = next;
       next += LIMIT;
       if (offset >= total) return;
-      const d = await post({ scope, matchId, offset, limit: LIMIT });
+      const d = await post({ scope, matchId, cond, offset, limit: LIMIT });
       if (d?.ok) {
         cache += d.cache; ai += d.ai; failed += d.failed;
         // 산출이 통째로 안 되면 한도에 걸렸다는 뜻 — 계속 돌려봐야 빈 칸만 늘어난다.
@@ -76,6 +76,10 @@ async function warm(scope, matchId, label) {
   return { total, cache, ai, failed };
 }
 
+// 자주 쓰는 조건은 미리 깔아 둔다 — 조건이 바뀌면 캐시 키가 달라져 전부 미스가 된다.
+// WARM_CONDS="비,추격 중" 처럼 지정하거나, 비우면 조건 없음만 예열한다.
+const CONDS = ["", ...(process.env.WARM_CONDS ? process.env.WARM_CONDS.split(",").map((s) => s.trim()).filter(Boolean) : [])];
+
 const [, , arg1, arg2] = process.argv;
 
 if (arg1 === "global") {
@@ -86,11 +90,14 @@ if (arg1 === "global") {
   const ms = await fetch(BASE + "/api/warm").then((r) => r.json()).catch(() => null);
   const ids = ms?.ok ? ms.matches.map((m) => m.id) : ["m-fra-mar", "m-sei-rak", "m-aus-kaz", "m-nzb-syd"];
   console.log("예열 시작 — 메인 + 경기", ids.length, "건\n");
-  const g = await warm("global", undefined, "메인      ");
-  if (g?.stopped) process.exit(1);
-  for (const id of ids) {
-    const r = await warm("match", id, id.padEnd(10));
-    if (r?.stopped) process.exit(1);
+  for (const c of CONDS) {
+    const tag = c ? `[${c}] ` : "";
+    const g = await warm("global", undefined, (tag + "메인").padEnd(16), c);
+    if (g?.stopped) process.exit(1);
+    for (const id of ids) {
+      const r = await warm("match", id, (tag + id).padEnd(16), c);
+      if (r?.stopped) process.exit(1);
+    }
   }
 }
 console.log("\n완료. 프로덕션은 이제 이 조합들을 캐시에서 읽습니다.");

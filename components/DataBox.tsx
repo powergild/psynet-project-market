@@ -13,12 +13,16 @@ import type { Match } from "@/lib/matches";
 
 type Axis = { id: string; ax: string | null; ctx: string | null; src: string | null };
 type Target = { kind: AxisKind; id: string } | null;
-type GlowCell = { rowId: string; colId: string; why: string; level?: number; trust?: number | null; scored?: number };
+type GlowCell = { rowId: string; colId: string; why: string };
+/** 셀 하나의 누적 성적. 격자에 올린 행·열이 곧 조각이므로 모든 셀에 붙는다. */
+type TierInfo = { tier: string; trust: number | null; scored: number };
 type Glow = { cells: GlowCell[]; line: string; ok: boolean };
 type Term = { n: string; w: number };
 type Formula = { rowId: string; colId: string; title: string; base: string; terms: Term[]; base0: number };
 type CellRec = { rowId: string; colId: string; row: string; col: string; offer: AxisOffer & { hit: number } };
 type Dialog = { msg: string; cost: string; ok: string; run: () => void };
+
+const TIER_CLASS: Record<string, string> = { "희귀": "r", "영웅": "e", "전설": "l" };
 
 const uid = () => Math.random().toString(36).slice(2, 9);
 const ck = (r: string, c: string) => `${r}::${c}`;
@@ -63,6 +67,7 @@ export default function DataBox({
   const [toast, setToast] = useState<string | null>(null);
   const [setup, setSetup] = useState(false);
   const [glow, setGlow] = useState<Glow | null>(null);
+  const [tiers, setTiers] = useState<Record<string, TierInfo>>({});
   const [glowing, setGlowing] = useState(false);
   const [rate, setRate] = useState<number | null>(null);
   const [formula, setFormula] = useState<Formula | null>(null);
@@ -225,6 +230,10 @@ export default function DataBox({
       const d = await res.json();
       if (d.ok) {
         setGlow({ cells: d.cells ?? [], line: d.line ?? "", ok: d.analyzed !== false });
+        setTiers(Object.fromEntries(
+          (d.tiers ?? []).map((t: TierInfo & { rowId: string; colId: string }) =>
+            [ck(t.rowId, t.colId), { tier: t.tier, trust: t.trust, scored: t.scored }])
+        ));
         setRate(d.record?.rate ?? null);
         // F-20 격자 하단 추천 행 — 내가 아직 안 가진 축 하나
         const mine = [...rows, ...cols].map((a) => a.ax).filter(Boolean) as string[];
@@ -439,6 +448,7 @@ export default function DataBox({
           <Grid
             rows={rows} cols={cols} cells={cells} pending={pending} scope={scope}
             glowIds={glow?.cells.map((g) => ck(g.rowId, g.colId)) ?? []}
+            tiers={tiers}
             dim={!!glow && glow.cells.length > 0}
             ghost={ghost}
             onPickTarget={(t) => { setTarget(t); setQ(""); }}
@@ -596,11 +606,13 @@ export default function DataBox({
             </div>
             <p className="shint">{glowWhy(cellRec.rowId, cellRec.colId)}</p>
             {(() => {
-              const g = glow?.cells.find((x) => x.rowId === cellRec.rowId && x.colId === cellRec.colId);
-              if (!g || !g.scored) return null;
+              const t = tiers[ck(cellRec.rowId, cellRec.colId)];
+              if (!t?.scored) return null;
               return (
                 <p className="shint">
-                  이 조각: <b>Lv.{g.level}</b> · 누적 {g.scored}회 채점 · 보정 적중 {g.trust}%
+                  이 조각: <b>{tiers[ck(cellRec.rowId, cellRec.colId)]?.tier ?? "일반"}</b> 등급 ·
+                  누적 {tiers[ck(cellRec.rowId, cellRec.colId)]?.scored ?? 0}회 채점 ·
+                  보정 적중 {tiers[ck(cellRec.rowId, cellRec.colId)]?.trust ?? "-"}%
                 </p>
               );
             })()}
@@ -657,10 +669,11 @@ function openFormulaById(
 
 /* ── 격자 ───────────────────────────────────────────── */
 function Grid({
-  rows, cols, cells, pending, scope, glowIds, dim, ghost, onPickTarget, onAdd, onCell, onGhost,
+  rows, cols, cells, pending, scope, glowIds, tiers, dim, ghost, onPickTarget, onAdd, onCell, onGhost,
 }: {
   rows: Axis[]; cols: Axis[]; cells: Record<string, string>; pending: Set<string>;
-  scope: string | null; glowIds: string[]; dim: boolean; ghost: AxisOffer | null;
+  scope: string | null; glowIds: string[]; tiers: Record<string, TierInfo>;
+  dim: boolean; ghost: AxisOffer | null;
   onPickTarget: (t: Target) => void;
   onAdd: (kind: AxisKind) => void;
   onCell: (r: Axis, c: Axis) => void;
@@ -704,11 +717,16 @@ function Grid({
               const v = cells[k];
               if (v === undefined) return <td key={c.id} className="void" />;
               const lit = glowIds.includes(k);
+              const t = tiers[k];
               const cls = [v === NO_VALUE ? "empty" : "", lit ? "glow" : "", dim && !lit ? "dim" : ""]
                 .filter(Boolean).join(" ");
               return (
                 <td key={c.id} className={cls} onClick={() => v !== NO_VALUE && onCell(r, c)}>
                   <span className="v num">{v}</span>
+                  {/* 등급은 검증된 조각에만 붙인다 — 전부 "일반"이면 격자가 배지로 뒤덮인다 */}
+                  {t && t.tier !== "일반" && (
+                    <span className={`tier t-${TIER_CLASS[t.tier] ?? "n"}`}>{t.tier}</span>
+                  )}
                 </td>
               );
             })}
