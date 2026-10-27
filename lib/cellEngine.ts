@@ -344,7 +344,12 @@ export async function computeCells(
     if (f !== undefined) return { rowId: r.row.id, colId: r.col.id, value: f, from: "derived" };
 
     const hit = cached.get(keys[i]);
-    if (hit !== undefined) return { rowId: r.row.id, colId: r.col.id, value: hit, from: "cache" };
+    if (hit !== undefined) {
+      // 캐시된 "모름"을 cache로 보고하면 "값이 있다"와 구분이 안 된다.
+      // 화면은 어차피 "—"를 보지만, 지표가 거짓말을 하면 무엇을 고쳐야 할지 알 수 없다.
+      const kind = hit === UNKNOWN ? "unknown" : "cache";
+      return { rowId: r.row.id, colId: r.col.id, value: hit, from: kind };
+    }
 
     const d = derived.get(i);
     if (d !== undefined) {

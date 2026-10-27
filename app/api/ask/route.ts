@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { computeCells, type MatchContext } from "@/lib/cellEngine";
+import { computeCells, comboKey, type MatchContext } from "@/lib/cellEngine";
 import { UNKNOWN, NO_VALUE } from "@/lib/axes";
 import { getMatchSource } from "@/lib/matches";
 import { logInfoRequest } from "@/lib/infoRequests";
@@ -43,9 +43,12 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    // 캐시에 "모름"이 박혀 있으면 지우고 다시 묻는다 — 요청의 뜻이 그것이다.
-    await supabase.from("cell_cache").delete().eq("value", UNKNOWN)
-      .like("combo_key", `%${body.row.name}|%`);
+    /* 캐시에 "모름"이 박혀 있으면 지우고 다시 묻는다 — 요청의 뜻이 그것이다.
+       **그 칸 하나만** 지운다. 예전에는 행 이름으로 LIKE 검색해 통째로 지웠는데,
+       그러면 한 칸을 요청했다가 그 행의 모든 "모름"이 날아가고 다음 진입이
+       통째로 재계산된다(시뮬레이션에서 재방문이 0.7초 → 40.8초가 됐다). */
+    const key = comboKey(body.row, body.col, cond);
+    await supabase.from("cell_cache").delete().eq("combo_key", key).eq("value", UNKNOWN);
 
     const [cell] = await computeCells([{ row: body.row, col: body.col }], ctx, cond);
     const resolved = !!cell && cell.value !== UNKNOWN && cell.value !== NO_VALUE;
