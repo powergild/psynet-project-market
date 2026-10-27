@@ -103,6 +103,7 @@ export default function DataBox({
       for (const r of rs) {
         for (const c of cs) {
           if (!r.ax || !c.ax) continue;                       // (빈칸)은 계산하지 않는다
+          if (r.ax === c.ax) continue;                        // "비 × 비"는 물을 것이 없다
           if (keep && !keep(r, c)) continue;
           pairs.push({ row: r, col: c });
         }
@@ -440,8 +441,15 @@ export default function DataBox({
 
   // 메인은 상위 개념, 경기 상세는 세부 지표까지 — 다루는 층위가 다르다.
   const level = match ? "detail" : "top";
+  // 반대편 축에 이미 쓰인 이름은 고를 수 없다 — 같은 이름이 행과 열에 동시에 오면
+  // "비만 놓고 보면 홈팀이 비에 강할 확률"처럼 물을 것이 없는 칸이 생긴다.
+  const taken = new Set(
+    (target?.kind === "row" ? cols : rows).map((a) => a.ax).filter(Boolean) as string[]
+  );
   const groups = target
     ? searchAxes(catalogFor(target.kind, match?.players, sport, level), q)
+        .map((g) => ({ category: g.category, items: g.items.filter((i) => !taken.has(i.name)) }))
+        .filter((g) => g.items.length)
     : [];
   const targetHasAxis = !!target && [...rows, ...cols].find((a) => a.id === target.id)?.ax;
   const glowWhy = (rowId: string, colId: string) =>
@@ -773,7 +781,8 @@ function Grid({
             {head(r, "row")}
             {cols.map((c) => {
               const k = ck(r.id, c.id);
-              if (!r.ax || !c.ax) return <td key={c.id} className="void" />;
+              // 같은 이름이 행과 열에 동시에 오면 물을 것이 없다. 비워 둔다.
+              if (!r.ax || !c.ax || r.ax === c.ax) return <td key={c.id} className="void" />;
               if (pending.has(k)) return <td key={c.id} className="skel" />;
               const v = cells[k];
               if (v === undefined) return <td key={c.id} className="void" />;
