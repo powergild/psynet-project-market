@@ -11,7 +11,8 @@
 
 import Anthropic from "@anthropic-ai/sdk";
 import { supabase } from "@/lib/supabase";
-import { NO_VALUE } from "@/lib/axes";
+import { NO_VALUE, condParts } from "@/lib/axes";
+import { deriveConditioned } from "@/lib/estimator";
 // cliEngine은 node:child_process를 쓴다. 정적 import하면 Node 런타임이 아닌 호스팅으로
 // 옮길 수 없고 번들도 무거워진다. 켜져 있을 때만 동적으로 불러온다.
 const cliOn = () => process.env.CLAUDE_CLI === "1";
@@ -27,7 +28,10 @@ export type CellRequest = { row: AxisRef; col: AxisRef };
 
 /** 박스 전체에 걸린 조건(스포츠조각의 "조건"). 빈 문자열 = 조건 없음. */
 export type Condition = string;
-export type CellResult = { rowId: string; colId: string; value: string; from: "cache" | "ai" | "failed" };
+export type CellResult = {
+  rowId: string; colId: string; value: string;
+  from: "cache" | "derived" | "ai" | "failed";
+};
 
 export type MatchContext = {
   sport: string;
@@ -246,10 +250,28 @@ export async function computeCells(
   if (!reqs.length) return [];
 
   const keys = reqs.map((r) => comboKey(r.row, r.col, cond));
-  const cached = await readCache(Array.from(new Set(keys)));
+
+  // 조건이 걸렸으면 조건 없는 기준값도 함께 읽는다 — 그걸로 유도되면 AI를 부르지 않는다.
+  const parts = condParts(cond);
+  const baseKeys = parts.length ? reqs.map((r) => comboKey(r.row, r.col, "")) : [];
+  const cached = await readCache(Array.from(new Set([...keys, ...baseKeys])));
+
+  // 엔진이 유도할 수 있는 칸은 AI 대상에서 뺀다.
+  const derived = new Map<number, string>();
+  if (parts.length) {
+    reqs.forEach((_, i) => {
+      if (cached.has(keys[i])) return;
+      const base = cached.get(baseKeys[i]);
+      if (!base) return;
+      const d = deriveConditioned(base, parts);
+      if (d) derived.set(i, d.value);
+    });
+  }
 
   const missIdx: number[] = [];
-  reqs.forEach((_, i) => { if (!cached.has(keys[i])) missIdx.push(i); });
+  reqs.forEach((_, i) => {
+    if (!cached.has(keys[i]) && !derived.has(i)) missIdx.push(i);
+  });
 
   const aiVals = missIdx.length
     ? await aiCompute(missIdx.map((i) => reqs[i]), ctx, cond)
@@ -259,6 +281,12 @@ export async function computeCells(
   const results: CellResult[] = reqs.map((r, i) => {
     const hit = cached.get(keys[i]);
     if (hit !== undefined) return { rowId: r.row.id, colId: r.col.id, value: hit, from: "cache" };
+
+    const d = derived.get(i);
+    if (d !== undefined) {
+      fresh.push({ combo_key: keys[i], value: d });   // 유도값도 캐시한다 — 재현 가능한 값이다
+      return { rowId: r.row.id, colId: r.col.id, value: d, from: "derived" };
+    }
 
     const pos = missIdx.indexOf(i);
     const ai = pos >= 0 ? aiVals.get(pos) : undefined;
