@@ -36,7 +36,8 @@ export type CellResult = {
   rowId: string; colId: string; value: string;
   // unknown = 모델이 그 대상을 모른다고 답한 칸. failed(산출 실패)와 다르다 —
   // 재시도해도 안 나오므로, 재시도 배너가 아니라 "정보 요청" 경로로 보낸다.
-  from: "cache" | "derived" | "ai" | "unknown" | "failed";
+  // blocked = 같은 이름이 행과 열에 동시에 온 칸. 물을 것이 없으므로 산출하지 않는다.
+  from: "cache" | "derived" | "ai" | "unknown" | "failed" | "blocked";
 };
 
 export type MatchContext = {
@@ -273,6 +274,11 @@ export async function computeCells(
   const today = new Date().toISOString().slice(0, 10);
   const dayOf = (i: number) => (FORTUNE_COLS.has(reqs[i].col.name) ? today : "");
 
+  /* 같은 이름이 행과 열에 동시에 오면 물을 것이 없다("비만 놓고 보면 홈팀이 비에 강할 확률").
+     화면에서도 막지만 서버에서도 막는다 — 무의미한 조합이 캐시에 쌓이면 통계가 더러워진다. */
+  const blocked = new Set<number>();
+  reqs.forEach((r, i) => { if (r.row.name === r.col.name) blocked.add(i); });
+
   const keys = reqs.map((r, i) => comboKey(r.row, r.col, cond, dayOf(i)));
 
   /* 재미 지표(운세·궁합·징크스)는 **규칙으로 계산한다.** AI에게 물으면 매번 다른 숫자를
@@ -286,7 +292,7 @@ export async function computeCells(
       opponent: ctx.away ?? "",
     };
     reqs.forEach((r, i) => {
-      if (!FORTUNE_COLS.has(r.col.name)) return;
+      if (blocked.has(i) || !FORTUNE_COLS.has(r.col.name)) return;
       const birth = birthOf(r.row.name);
       const f = birth && computeFortune(r.col.name, birth, fctx);
       if (f) fortune.set(i, f);     // 생년월일이 없으면 AI가 채운다(날짜별로 캐시된다)
@@ -321,6 +327,7 @@ export async function computeCells(
 
   const missIdx: number[] = [];
   reqs.forEach((_, i) => {
+    if (blocked.has(i)) return;
     if (!cached.has(keys[i]) && !derived.has(i) && !fortune.has(i)) missIdx.push(i);
   });
 
@@ -330,6 +337,8 @@ export async function computeCells(
 
   const fresh: { combo_key: string; value: string }[] = [];
   const results: CellResult[] = reqs.map((r, i) => {
+    if (blocked.has(i)) return { rowId: r.row.id, colId: r.col.id, value: NO_VALUE, from: "blocked" };
+
     // 규칙으로 계산되는 칸은 캐시보다 먼저다 — 계산이 공짜라 캐시할 이유가 없다.
     const f = fortune.get(i);
     if (f !== undefined) return { rowId: r.row.id, colId: r.col.id, value: f, from: "derived" };

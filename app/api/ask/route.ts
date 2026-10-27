@@ -27,6 +27,10 @@ export async function POST(req: NextRequest) {
   if (!body?.row?.name || !body?.col?.name) {
     return NextResponse.json({ ok: false, error: "행과 열이 필요합니다." }, { status: 400 });
   }
+  // 같은 이름이 행과 열에 동시에 오면 물을 것이 없다 — 요청으로도 받지 않는다.
+  if (body.row.name === body.col.name) {
+    return NextResponse.json({ ok: true, resolved: false, value: null, from: "blocked" });
+  }
   const cond = (body.cond ?? "").slice(0, 40);
 
   let ctx: MatchContext = null;
