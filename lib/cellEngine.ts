@@ -14,7 +14,7 @@ import { supabase } from "@/lib/supabase";
 import { NO_VALUE, UNKNOWN, condParts } from "@/lib/axes";
 import { deriveConditioned, applyObserved } from "@/lib/estimator";
 import { pieceStatsMany, pieceId } from "@/lib/pieces";
-import { promptLineOf } from "@/lib/sentence";
+import { promptLineOf, blockedPair } from "@/lib/sentence";
 import { FORTUNE_COLS, computeFortune } from "@/lib/fortune";
 import { birthOf } from "@/lib/people";
 // cliEngine은 node:child_process를 쓴다. 정적 import하면 Node 런타임이 아닌 호스팅으로
@@ -274,10 +274,10 @@ export async function computeCells(
   const today = new Date().toISOString().slice(0, 10);
   const dayOf = (i: number) => (FORTUNE_COLS.has(reqs[i].col.name) ? today : "");
 
-  /* 같은 이름이 행과 열에 동시에 오면 물을 것이 없다("비만 놓고 보면 홈팀이 비에 강할 확률").
+  /* 물어볼 수 없는 조합은 산출하지 않는다(blockedPair 참고).
      화면에서도 막지만 서버에서도 막는다 — 무의미한 조합이 캐시에 쌓이면 통계가 더러워진다. */
   const blocked = new Set<number>();
-  reqs.forEach((r, i) => { if (r.row.name === r.col.name) blocked.add(i); });
+  reqs.forEach((r, i) => { if (blockedPair(r.row.name, r.col.name)) blocked.add(i); });
 
   const keys = reqs.map((r, i) => comboKey(r.row, r.col, cond, dayOf(i)));
 

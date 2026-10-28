@@ -10,6 +10,7 @@
 // 순수 데이터/헬퍼만 — supabase import 금지(클라이언트에서도 쓴다).
 
 import { condParts } from "@/lib/axes";
+import { FORTUNE_COLS } from "@/lib/fortune";
 
 /* ── 행 슬롯의 두 종류 ─────────────────────────────────────
    행에는 성격이 다른 두 가지가 섞여 있다. 문장으로 쓰면 그게 드러난다.
@@ -129,6 +130,29 @@ export function josa(word: string, kind: "가" | "는" | "를" | "에"): string 
   if (kind === "가") return coda ? "이" : "가";
   if (kind === "는") return coda ? "은" : "는";
   return coda ? "을" : "를";
+}
+
+/**
+ * 물어볼 수 없는 조합.
+ * 문장으로 써 보면 드러난다 — 말이 안 되면 값도 없다.
+ *
+ *   같은 이름        "비만 놓고 보면 홈팀이 비에 강할 확률"
+ *   요인 × 재미      "최근 5경기 폼만 놓고 보면 홈팀이 오늘 운이 따를 확률"
+ *
+ * 운세는 생년월일에서 나오는데 "최근 5경기 폼"에는 생년월일이 없다. 주체가 아닌
+ * 것에 운세를 묻는 셈이라 AI도 답할 수 없고, 답한다면 그건 지어낸 것이다.
+ *
+ * 서버와 클라이언트가 같은 함수를 쓴다 — 판단이 갈리면 화면과 데이터가 어긋난다.
+ */
+/** 운세·궁합은 생년월일에서 나온다. 이름이 아니라 **역할**인 행에는 물을 수 없다 —
+ *  "홈팀"은 경기마다 다른 팀이라 생일이 없다. 예측 지표에는 주체로 멀쩡히 쓰인다. */
+const NO_IDENTITY = new Set(["홈팀", "원정팀"]);
+
+export function blockedPair(row: string, col: string): boolean {
+  if (!row || !col) return false;
+  if (row === col) return true;
+  if (FORTUNE_COLS.has(col) && (isFactorRow(row) || NO_IDENTITY.has(row))) return true;
+  return false;
 }
 
 export type Slots = { cond: string; row: string; col: string; scope?: string | null };

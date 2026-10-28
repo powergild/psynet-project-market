@@ -8,7 +8,7 @@ import {
 } from "@/lib/axes";
 import { recommendAxis, recommendForCell, type AxisOffer } from "@/lib/market";
 import { balance, spend } from "@/lib/wallet";
-import { sentenceOf } from "@/lib/sentence";
+import { sentenceOf, blockedPair } from "@/lib/sentence";
 import SetupSheet from "@/components/SetupSheet";
 import type { Match } from "@/lib/matches";
 
@@ -103,7 +103,7 @@ export default function DataBox({
       for (const r of rs) {
         for (const c of cs) {
           if (!r.ax || !c.ax) continue;                       // (빈칸)은 계산하지 않는다
-          if (r.ax === c.ax) continue;                        // "비 × 비"는 물을 것이 없다
+          if (blockedPair(r.ax, c.ax)) continue;              // 물을 것이 없는 조합
           if (keep && !keep(r, c)) continue;
           pairs.push({ row: r, col: c });
         }
@@ -781,8 +781,8 @@ function Grid({
             {head(r, "row")}
             {cols.map((c) => {
               const k = ck(r.id, c.id);
-              // 같은 이름이 행과 열에 동시에 오면 물을 것이 없다. 비워 둔다.
-              if (!r.ax || !c.ax || r.ax === c.ax) return <td key={c.id} className="void" />;
+              // 물을 것이 없는 조합은 비워 둔다(같은 이름 · 요인에게 운세 등).
+              if (!r.ax || !c.ax || blockedPair(r.ax, c.ax)) return <td key={c.id} className="void" />;
               if (pending.has(k)) return <td key={c.id} className="skel" />;
               const v = cells[k];
               if (v === undefined) return <td key={c.id} className="void" />;
