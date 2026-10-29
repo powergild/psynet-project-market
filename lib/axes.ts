@@ -74,6 +74,14 @@ export function condParts(cond: string): string[] {
 /** 행 분류 목록 (초기 설문에서 쓴다) */
 export const ROW_CATEGORIES = Object.keys(ROW_DEF);
 
+/** 설문에서 고를 수 있는 기준 분류. 층위를 지켜야 한다 —
+ *  메인에서 "팀 특성"을 고르게 하면 격자가 분석표가 된다. */
+export function rowCategories(level: AxisLevel = "top"): string[] {
+  return Object.entries(ROW_DEF)
+    .filter(([, g]) => level === "detail" || g.level === "top")
+    .map(([c]) => c);
+}
+
 // 열 축 — 측정 지표.
 // 셀에 들어가는 값은 지표의 원값이 아니라 **그 조건에서의 승률(%)** 이다.
 // 행(기준) × 열(지표)에 계산식이 적용된 결과가 승률이므로, 모든 셀의 단위는 하나다.
@@ -215,9 +223,16 @@ export function catalogFor(
   return out;
 }
 
-/** 설문에서 고를 수 있는 지표 목록 (종목별) */
-export function metricChoices(sport: Sport): Group[] {
-  return catalogFor("col", undefined, sport);
+/**
+ * 설문에서 고를 수 있는 지표 목록 (종목별).
+ *
+ * **level을 넘겨야 한다.** 종목 기록(안타·코너킥·리바운드)은 전부 level="detail"이라,
+ * 기본값 "top"으로 부르면 야구 경기 설문에 야구 지표가 **하나도 안 나온다.**
+ * "기본값으로 시작"은 DETAIL_COLS[sport]를 넣어주는데 설문으로는 고를 수 없어서,
+ * 성실히 설문에 답한 유저가 오히려 더 빈약한 격자를 받았다.
+ */
+export function metricChoices(sport: Sport, level: AxisLevel = "top"): Group[] {
+  return catalogFor("col", undefined, sport, level);
 }
 
 /**

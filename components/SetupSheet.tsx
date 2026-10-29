@@ -1,7 +1,10 @@
 "use client";
 
 import { useState } from "react";
-import { SPORTS, ROW_CATEGORIES, metricChoices, buildSetup, type Sport } from "@/lib/axes";
+import {
+  SPORTS, rowCategories, metricChoices, buildSetup,
+  type Sport, type AxisLevel,
+} from "@/lib/axes";
 
 /**
  * 초기 설정 설문.
@@ -17,12 +20,15 @@ export default function SetupSheet({
   onSkip: () => void;
 }) {
   const fixed = sport ?? null;
+  // 종목이 정해져 있다 = 경기 안이다. 경기 안은 세부 층위까지 다룬다.
+  const level: AxisLevel = fixed ? "detail" : "top";
   const [step, setStep] = useState(fixed ? 1 : 0);
   const [sp, setSp] = useState<Sport>(fixed ?? "축구");
   const [cats, setCats] = useState<string[]>(["경기 구도"]);
   const [mets, setMets] = useState<string[]>(["득점 기대값", "실점 기대값"]);
 
-  const rowCats = players?.length ? ["이 경기 선수", ...ROW_CATEGORIES] : ROW_CATEGORIES;
+  const cates = rowCategories(level);
+  const rowCats = players?.length ? ["이 경기 선수", ...cates] : cates;
   const toggle = (l: string[], v: string) => (l.includes(v) ? l.filter((x) => x !== v) : [...l, v]);
 
   const last = 2;
@@ -72,7 +78,7 @@ export default function SetupSheet({
             </div>
           )}
 
-          {step === 2 && metricChoices(sp).map((g) => (
+          {step === 2 && metricChoices(sp, level).map((g) => (
             <div className="axgroup" key={g.category}>
               <div className="gl">{g.category}</div>
               <div className="pickgrid">
