@@ -73,6 +73,30 @@
 
 어느 쪽이든 **결제·플랜 결정이라 계정 소유자만 할 수 있다.**
 
+### 결정: 2번 — 프로젝트를 정지시켰다 (2026-10-29)
+
+`POST /v1/projects/prj_9dYeXZMjoEWWmKUJF9SR1geJiPaC/pause` → 200,
+`paused: true` / `live: false`.
+
+`https://mitocreate.ai/`는 이제 **503 `X-Vercel-Error: DEPLOYMENT_PAUSED`**(99바이트)를
+엣지에서 돌려준다. 오리진을 타지 않으므로 Fast Origin Transfer가 더 쌓이지 않는다.
+**사이트는 의도적으로 내려가 있는 상태다** — 장애가 아니다.
+
+- 같은 팀의 `project-eval`·`netlify_deploy`는 라이브로 남겼다. 커스텀 도메인이 없고
+  마지막 배포가 6~7월이라 트래픽이 사실상 없다. 초과의 원인이 아니다.
+- **로컬 dev(3000)는 영향 없다.** 계속 띄워놓고 작업할 수 있다.
+- 리셋 날짜는 API로 못 본다(Hobby는 `billing.period: null`).
+  대시보드 **Usage → Current period**에서 확인할 것. 팀 생성일은 2025-07-14.
+
+### 리셋되면 할 일 (순서대로)
+
+1. `POST /v1/projects/<id>/unpause?teamId=<team>` — 정지 해제
+2. `GET /v2/teams/<team>` 에서 **`softBlock`이 사라졌는지 확인**. 남아 있으면 배포는 또 거절된다.
+3. `git push origin main` (또는 `npx.cmd vercel deploy --prod`)
+4. **`condbar`가 HTML에 있는지로 신버전 확인.** 200은 증거가 아니다.
+5. 응답 헤더가 `s-maxage`로 바뀌었는지 확인 — `no-store`면 아직 구버전이고,
+   그건 다시 같은 초과로 가는 길이다.
+
 ### 토큰 관련 함정 (두 번 걸렸다)
 
 - `npx vercel login`이 **조용히 아무것도 안 했다.** PowerShell 실행 정책이
