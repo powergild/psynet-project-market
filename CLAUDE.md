@@ -189,6 +189,11 @@ node scripts/warm-cache.mjs match m-fra-mar
 ## 배포
 
 - `git push origin main`이면 끝 — public 레포 + Vercel git 연동이라 push마다 자동배포(~45s).
+- ⚠️ **2026-10-29 현재 Vercel 계정이 차단되어 배포가 생성되지 않는다.** push하면 5초 뒤 커밋에
+  `failure / "Account is blocked."`가 달린다. 라이브는 10/22 빌드가 그대로 서빙 중.
+  **`curl`이 200이라고 배포 성공이 아니다** — 정지 중에도 구버전이 200을 준다.
+  배포 확인은 `gh api repos/powergild/psynet-project-market/commits/<sha>/status`와
+  HTML의 버전 식별자(`condbar` 있음 = 신버전)로 할 것. 경위·해결 경로는 WORKLOG 참고.
 - Node/npm이 PATH에 없는 환경 → `export PATH="/c/Program Files/nodejs:$PATH"`.
 - **로컬 dev 서버는 `preview_start` 도구 쓰지 말 것** — 한글 경로 때문에 cmd.exe 인코딩이 깨진다. `(npm run dev > /tmp/dev.log 2>&1 &)`로 띄우고, 끝나면 `netstat -ano | grep :3001` → `taskkill //PID <n> //F`. 브라우저는 `preview_start {url:"http://localhost:3001"}`로 붙인다.
 - **dev 서버가 떠 있는 동안 `next build` 돌리지 말 것** — `.next`를 덮어써서 dev가 `Cannot find module './611.js'`로 죽는다. 빌드했으면 `rm -rf .next` 후 dev 재시작.

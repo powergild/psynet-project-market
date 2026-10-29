@@ -22,6 +22,52 @@
 
 ---
 
+## 2026-10-29 — Vercel 계정 차단: 프로젝트 unpause로는 안 풀린다
+
+### 사실관계 (추측 아님)
+
+- 프로젝트 unpause REST 호출은 **200**. `https://mitocreate.ai/`도 **200**을 돌려준다.
+- 그런데 라이브는 여전히 **10/22 빌드**다. HTML에 `scobadge`·`actionbar`가 있고
+  `condbar`가 없다 — 10/22 이후 제거·추가한 것들이라 버전 식별자로 쓸 수 있다.
+  응답 헤더도 `Cache-Control: private, no-cache, no-store` — 전 페이지 `force-dynamic`이던
+  그 빌드, 즉 전송량 초과의 원인이 된 버전이 그대로 서빙되고 있다.
+- `main`을 푸시하면(03:03:59Z) **5초 뒤** Vercel이 커밋에 상태를 단다:
+  `state: failure`, `description: "Account is blocked."`
+  직전 커밋(10/28 23:14Z)도 같다.
+
+**즉 프로젝트 정지 해제와 계정 차단은 별개다.** 전자는 풀렸고 후자는 남아 있다.
+계정이 차단된 동안은 git 연동이 멀쩡해도 배포가 생성조차 되지 않는다
+(`/deployments` API의 최신 기록이 10/22에서 멈춰 있다).
+
+### 남은 일 — 계정 소유자만 할 수 있다
+
+Vercel 대시보드에서 차단 사유를 확인해야 한다. Hobby에서 Fast Origin Transfer를
+초과해 정지된 이력이므로 **공정이용 한도 쪽**이 유력하고, 그렇다면 Pro 전환이나
+다음 청구 주기까지 기다리는 것 말고는 길이 없다. 미납·Spend Management가 원인일
+수도 있으니 Settings → Billing을 먼저 볼 것.
+
+CLI 토큰은 이 환경에 없다(`VERCEL_TOKEN` 미설정) — API로는 확인도 못 한다.
+
+### Netlify 폴백 — env 하나만 남았다
+
+`netlify.toml`·사이트(`mitocreate-databox`)·CLI 로그인까지 다 되어 있고,
+**환경변수만 비어 있다**(`No environment variables set`). 넣고 `deploy --prod`면 뜬다.
+
+- `CLAUDE_CLI`는 **절대 넣지 말 것.** 그게 켜지면 `/api/warm`이 공개돼
+  아무나 대량 AI 호출을 유발할 수 있다. 서버리스엔 CLI도 없으니 켤 이유가 없다.
+- `ANTHROPIC_API_KEY`도 지금은 없다 → 프로덕션은 **캐시·유도 전용**으로 돈다.
+  캐시 9,440건이 깔려 있어 표준 조합은 채워지고, 새 조합만 `—`가 된다.
+  설계 의도(프로덕션은 캐시 위주)와 어긋나지 않는다.
+
+### 주의점
+
+- 차단이 풀리는 즉시 **재배포가 먼저다.** 안 그러면 `force-dynamic` 구버전이
+  전송량을 다시 태워 같은 자리로 돌아온다.
+- 배포 성공 여부를 `curl`의 200으로 판단하면 안 된다. 정지 중에도 구버전이 200을 준다.
+  **커밋 상태(`commits/<sha>/status`)와 HTML 버전 식별자**로 확인할 것.
+
+---
+
 ## 2026-10-26 — 캐시 예열 + 구독(CLI) 백엔드, 그리고 캐시가 안 먹던 버그
 
 ### 한 일
