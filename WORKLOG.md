@@ -39,14 +39,47 @@
 계정이 차단된 동안은 git 연동이 멀쩡해도 배포가 생성조차 되지 않는다
 (`/deployments` API의 최신 기록이 10/22에서 멈춰 있다).
 
-### 남은 일 — 계정 소유자만 할 수 있다
+### 차단 사유 — 확정 (추측 아님)
 
-Vercel 대시보드에서 차단 사유를 확인해야 한다. Hobby에서 Fast Origin Transfer를
-초과해 정지된 이력이므로 **공정이용 한도 쪽**이 유력하고, 그렇다면 Pro 전환이나
-다음 청구 주기까지 기다리는 것 말고는 길이 없다. 미납·Spend Management가 원인일
-수도 있으니 Settings → Billing을 먼저 볼 것.
+`GET /v2/teams/team_IAssrGeb29kkIni4f74ApZbh`가 그대로 돌려준다:
 
-CLI 토큰은 이 환경에 없다(`VERCEL_TOKEN` 미설정) — API로는 확인도 못 한다.
+```json
+"softBlock": {
+  "blockedAt": 1792847751191,
+  "reason": "FAIR_USE_LIMITS_EXCEEDED",
+  "blockedDueToOverageType": "fastOriginTransfer"
+}
+```
+
+`vercel deploy --prod`도 같은 말을 한다: `Your Team exceeded our fair use limits and has been blocked.`
+
+- **2026-10-24 13:15:51Z**(KST 22:15)부터 **Fast Origin Transfer 공정이용 초과**로 soft block.
+- **미납이 아니다** — `status: active`, `overdue: null`, `blocked: null`. 결제로는 안 풀린다.
+- **팀 스코프**다(`junholee940930s-projects`, hobby). 이 프로젝트만이 아니라
+  그 계정의 **모든** 프로젝트가 막힌다(`project-eval`, `netlifydeploy` 등도 같이).
+
+### 악순환 구조 — 기다리는 게 해결이 아니다
+
+차단된 상태에서도 **10/22 구버전은 계속 서빙된다**(200, `no-store`).
+전 페이지 `force-dynamic`이라 요청마다 오리진을 타므로 **막혀 있는 동안에도
+초과분이 계속 쌓인다.** 그런데 그걸 고친 커밋은 이미 `main`에 있는데
+차단 때문에 배포가 안 된다 — 원인을 고칠 수단이 원인 때문에 막혀 있다.
+
+따라서 선택지는 둘뿐이다:
+
+1. **Pro 전환** — 즉시 풀리고, 고친 빌드가 올라가면서 전송량도 같이 떨어진다.
+2. **프로젝트 일시정지** — 서빙을 끊어 출혈을 멈추고 청구 주기 리셋을 기다린다.
+   사이트는 그동안 내려간다.
+
+어느 쪽이든 **결제·플랜 결정이라 계정 소유자만 할 수 있다.**
+
+### 토큰 관련 함정 (두 번 걸렸다)
+
+- `npx vercel login`이 **조용히 아무것도 안 했다.** PowerShell 실행 정책이
+  `npx.ps1` 로드를 거부한다(`UnauthorizedAccess`). 명령이 시작조차 안 되므로
+  "로그인했다"고 착각하게 된다. **이 환경에서는 `npx.cmd`를 쓸 것.**
+- 로그인해도 `~/AppData/Roaming/com.vercel.cli/Data/auth.json`은 **즉시 갱신되지 않는다.**
+  CLI를 한 번 실제로 쓰고 나서야 쓰인다. 토큰 파일만 보고 판단하지 말 것.
 
 ### Netlify 쓰지 않는다 (2026-10-29 결정)
 
