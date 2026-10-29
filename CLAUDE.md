@@ -194,6 +194,10 @@ node scripts/warm-cache.mjs match m-fra-mar
   **`curl`이 200이라고 배포 성공이 아니다** — 정지 중에도 구버전이 200을 준다.
   배포 확인은 `gh api repos/powergild/psynet-project-market/commits/<sha>/status`와
   HTML의 버전 식별자(`condbar` 있음 = 신버전)로 할 것. 경위·해결 경로는 WORKLOG 참고.
+- **배포는 Vercel만. Netlify로 우회하지 말 것**(2026-10-29 결정). 레포에 `netlify.toml`과
+  `mitocreate-databox` 사이트가 남아 있지만 **폴백 잔재이고 환경변수는 비어 있다 — 채우지 말 것.**
+  라이브가 두 군데로 갈리면 어느 쪽이 진짜인지 흐려지고, 막힌 건 플랫폼이 아니라 계정이라
+  옮겨도 원인이 남는다. 차단이 걸렸으면 **차단을 푸는 것**이 유일한 할 일이다.
 - Node/npm이 PATH에 없는 환경 → `export PATH="/c/Program Files/nodejs:$PATH"`.
 - **로컬 dev 서버는 `preview_start` 도구 쓰지 말 것** — 한글 경로 때문에 cmd.exe 인코딩이 깨진다. `(npm run dev > /tmp/dev.log 2>&1 &)`로 띄우고, 끝나면 `netstat -ano | grep :3001` → `taskkill //PID <n> //F`. 브라우저는 `preview_start {url:"http://localhost:3001"}`로 붙인다.
 - **dev 서버가 떠 있는 동안 `next build` 돌리지 말 것** — `.next`를 덮어써서 dev가 `Cannot find module './611.js'`로 죽는다. 빌드했으면 `rm -rf .next` 후 dev 재시작.
