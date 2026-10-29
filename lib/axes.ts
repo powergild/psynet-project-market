@@ -29,12 +29,34 @@ const TEAMS: Record<Sport, string[]> = {
   "농구": ["뉴질랜드 브레이커스", "시드니 킹스"],
 };
 
-/** 행 축 — 주체·조건 */
+/* ── 종목마다 말이 달라지는 항목 ───────────────────────────
+   축구의 "선제골"·"주전 골키퍼"가 야구·농구 격자에 그대로 떴다. 야구엔 골이 없고
+   농구엔 골키퍼가 없다. 종목이 정해진 자리(경기 안)에서는 그 종목의 말을 써야 한다.
+   "팀"이 TEAMS[sport]로 갈리는 것과 같은 처리다. */
+const BY_SPORT: Record<string, Record<Sport, string[]>> = {
+  "경기 전개": {
+    "축구": ["선제골 여부", "후반 교체 타이밍"],
+    "야구": ["선취점 여부", "불펜 투입 타이밍"],
+    "농구": ["선제 득점 여부", "후반 교체 타이밍"],
+  },
+  "팀 특성": {
+    "축구": ["주전 공격수", "주전 골키퍼", "벤치 뎁스", "감독 성향", "핵심 선수 결장", "팀 평균 연령"],
+    "야구": ["선발 투수", "마무리 투수", "벤치 뎁스", "감독 성향", "핵심 선수 결장", "팀 평균 연령"],
+    "농구": ["주전 가드", "주전 센터", "벤치 뎁스", "감독 성향", "핵심 선수 결장", "팀 평균 연령"],
+  },
+};
+
+/** 종목을 모를 때(메인) 쓰는 합집합. 중복은 한 번만. */
+const unionOf = (category: string): string[] =>
+  Array.from(new Set(SPORTS.flatMap((s) => BY_SPORT[category][s])));
+
+/** 행 축 — 주체·조건.
+ *  BY_SPORT에 있는 분류는 items가 합집합이고, 종목이 주어지면 그 종목 것으로 갈린다. */
 const ROW_DEF: Record<string, { sport: Sport | "all"; level: AxisLevel; items: string[] }> = {
   "팀":       { sport: "all", level: "top",    items: SPORTS.flatMap((s) => TEAMS[s]) },
   "경기 구도": { sport: "all", level: "top",    items: ["홈팀", "원정팀", "최근 5경기 폼", "상대 전적"] },
-  "경기 전개": { sport: "all", level: "detail", items: ["선제골 여부", "후반 교체 타이밍"] },
-  "팀 특성":  { sport: "all", level: "detail", items: ["주전 공격수", "주전 골키퍼", "벤치 뎁스", "감독 성향", "핵심 선수 결장", "팀 평균 연령"] },
+  "경기 전개": { sport: "all", level: "detail", items: unionOf("경기 전개") },
+  "팀 특성":  { sport: "all", level: "detail", items: unionOf("팀 특성") },
   "팀 상태":  { sport: "all", level: "detail", items: ["이동 거리", "휴식일 수", "연전 여부"] },
   // 같은 말이 조건·행·열 세 자리에서 각각 다른 뜻이 된다.
   //   조건  "비일 때, 프랑스가 득점에서 앞설 확률"      전제
@@ -149,11 +171,13 @@ export const AXIS_NAMES = ALL_AXES.map((a) => a.name);
 // 나머지 칸은 화면 크기에 맞춰 상위 축(팀·선수)에서 채워진다.
 export const DEFAULT_ROWS = ["홈팀", "원정팀", "최근 5경기 폼", "상대 전적"];
 
-/** 경기 상세 기본 행 — 그 경기를 뜯어보는 축. */
-export const DETAIL_ROWS = [
-  "홈팀", "원정팀", "주전 공격수", "주전 골키퍼",
-  "선제골 여부", "후반 교체 타이밍", "벤치 뎁스", "휴식일 수",
-];
+/** 경기 상세 기본 행 — 그 경기를 뜯어보는 축.
+ *  종목을 아는 자리에서만 쓰므로 종목의 말로 쓴다(야구에 골키퍼를 세우지 않는다). */
+export const DETAIL_ROWS: Record<Sport, string[]> = {
+  "축구": ["홈팀", "원정팀", "주전 공격수", "주전 골키퍼", "선제골 여부", "후반 교체 타이밍", "벤치 뎁스", "휴식일 수"],
+  "야구": ["홈팀", "원정팀", "선발 투수", "마무리 투수", "선취점 여부", "불펜 투입 타이밍", "벤치 뎁스", "휴식일 수"],
+  "농구": ["홈팀", "원정팀", "주전 가드", "주전 센터", "선제 득점 여부", "후반 교체 타이밍", "벤치 뎁스", "휴식일 수"],
+};
 // 설문을 건너뛰면 종목을 모른다 — 종목을 안 가리는 지표만 쓴다.
 // 기본 행은 전부 역할·요인이라 운세를 물을 수 없다. 운세는 선수·팀을 행에 세운
 // 사람이 직접 고르는 열이다 — 기본 격자에 두면 첫 화면에 빈 열이 생긴다.
@@ -217,7 +241,11 @@ export function catalogFor(
   }
   for (const [category, g] of Object.entries(ROW_DEF)) {
     if (!fits(g.sport, sport) || !inLevel(g.level)) continue;
-    const items = (category === "팀" && sport ? TEAMS[sport] : g.items).map((n) => mk(n, category, "row"));
+    const names =
+      category === "팀" && sport ? TEAMS[sport]
+      : BY_SPORT[category] && sport ? BY_SPORT[category][sport]
+      : g.items;
+    const items = names.map((n) => mk(n, category, "row"));
     if (items.length) out.push({ category, items });
   }
   return out;

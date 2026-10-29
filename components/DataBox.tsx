@@ -68,6 +68,9 @@ export default function DataBox({
   const [glow, setGlow] = useState<Glow | null>(null);
   const [tiers, setTiers] = useState<Record<string, TierInfo>>({});
   const [glowing, setGlowing] = useState(false);
+  /** 화면 채우기가 수렴했는가. 발광은 격자가 멎은 뒤에 딱 한 번만 돈다 —
+   *  채우는 도중에 부르면 행이 늘 때마다 AI 분석이 새로 돌아 한 번 열 때 네 번씩 호출됐다. */
+  const [settled, setSettled] = useState(false);
   const [formula, setFormula] = useState<Formula | null>(null);
   const [cellRec, setCellRec] = useState<CellRec | null>(null);
   /** 모르는 대상의 칸. 재시도 대상이 아니라 정보 요청 대상이다. */
@@ -171,7 +174,7 @@ export default function DataBox({
   /** 설문 결과(또는 기본값)로 첫 격자를 만든다. */
   const start = useCallback((g: { rows: string[]; cols: string[] }) => {
     // 여기서 계산하지 않는다 — 화면을 채운 뒤 한 번에 계산해야 호출이 한 번으로 끝난다.
-    setCells({}); setGlow(null);
+    setCells({}); setGlow(null); setSettled(false);
     setRows(mkAxes(g.rows, scope)); setCols(mkAxes(g.cols, scope)); setSetup(false);
   }, [scope]);
 
@@ -188,7 +191,8 @@ export default function DataBox({
     if (!rows.length || !cols.length || pending.size) return;
     const wrap = wrapRef.current;
     const table = wrap?.querySelector("table") as HTMLTableElement | null;
-    if (!wrap || !table) return;
+    // 잴 수 없으면 더 채울 수도 없다 — 지금 격자가 최종이라고 보고 발광을 막지 않는다.
+    if (!wrap || !table) { setSettled(true); return; }
 
     const bodyRow = table.querySelector("tbody tr") as HTMLElement | null;
     const rowH = bodyRow?.offsetHeight || 46;
@@ -220,14 +224,16 @@ export default function DataBox({
 
     // 빈 셀이 남아 있으면 채운다. 커졌으면 다음 턴에 다시 재서 남은 자리까지 메운다.
     const missing = (r: Axis, c: Axis) => cellsRef.current[ck(r.id, c.id)] === undefined;
-    if (nr.some((r) => nc.some((c) => r.ax && c.ax && missing(r, c)))) {
-      void compute(nr, nc, missing);
-    }
+    const holes = nr.some((r) => nc.some((c) => r.ax && c.ax && missing(r, c)));
+    if (holes) void compute(nr, nc, missing);
+
+    // 더 넣을 자리도 없고 빈 칸도 없으면 멎은 것이다.
+    setSettled(!grew && !holes);
   }, [rows, cols, pending.size, compute, match?.players, scope, sport]);
 
   // ── F-05 발광 ────────────────────────────────────
   const analyze = useCallback(async () => {
-    if (!matchId || pending.size) return;
+    if (!matchId || pending.size || !settled) return;
     const cands = [];
     for (const r of rows) {
       for (const c of cols) {
@@ -257,17 +263,17 @@ export default function DataBox({
       } else setGlow({ cells: [], line: "", ok: false });
     } catch { setGlow({ cells: [], line: "", ok: false }); }
     setGlowing(false);
-  }, [matchId, rows, cols, cells, pending.size, name, cond, say]);
+  }, [matchId, rows, cols, cells, pending.size, settled, name, cond, say]);
 
   // 경기 안에서 격자가 다 채워지면 바로 읽는다. 유저가 버튼을 누를 일이 아니다.
   const analyzedFor = useRef<string>("");
   useEffect(() => {
-    if (!matchId || pending.size || !rows.length) return;
+    if (!matchId || pending.size || !rows.length || !settled) return;
     const sig = rows.map((r) => r.id).join() + "|" + cols.map((c) => c.id).join() + "|" + Object.keys(cells).length;
     if (analyzedFor.current === sig) return;
     analyzedFor.current = sig;
     void analyze();
-  }, [matchId, pending.size, rows, cols, cells, analyze]);
+  }, [matchId, pending.size, settled, rows, cols, cells, analyze]);
 
   // ── 축 조작 ──────────────────────────────────────
   const addBlank = (kind: AxisKind) => {
@@ -463,7 +469,7 @@ export default function DataBox({
         onDone={start}
         onSkip={() => start(
           sport
-            ? { rows: DETAIL_ROWS, cols: DETAIL_COLS[sport] }   // 경기 안 = 세부 지표
+            ? { rows: DETAIL_ROWS[sport], cols: DETAIL_COLS[sport] }   // 경기 안 = 세부 지표
             : { rows: DEFAULT_ROWS, cols: DEFAULT_COLS }        // 메인 = 상위 개념
         )}
       />
