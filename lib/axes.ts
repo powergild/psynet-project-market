@@ -166,13 +166,13 @@ const fits = (s: Sport | "all", sport?: Sport | null) => s === "all" || !sport |
  * sport가 주어지면 그 종목에 맞는 지표·팀만 보여준다.
  */
 /** 메인에서도 고를 수 있는 선수. 조각은 "아무 팀에서나 관심 있는 선수"를 고르는 것이므로
- *  경기 밖에서도 주체로 세울 수 있어야 한다. 경기 안에서는 그 경기 선수가 우선 노출된다. */
+ *  경기 밖에서도 주체로 세울 수 있어야 한다. 경기 안에서는 그 경기 선수가 우선 노출된다.
+ *
+ *  읽는 쪽은 게터가 아니라 아래 `catalogFor`가 **이 변수를 직접** 본다(`else if` 분기).
+ *  게터를 따로 두면 "아무도 안 읽는다"로 오해하기 쉬워서 두지 않는다 — 실제로 한 번 당했다. */
 let GLOBAL_PLAYERS: string[] = [];
 export function setGlobalPlayers(names: string[]) {
   GLOBAL_PLAYERS = Array.from(new Set(names));
-}
-export function globalPlayers(): string[] {
-  return GLOBAL_PLAYERS;
 }
 
 /**
