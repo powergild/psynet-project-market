@@ -82,8 +82,9 @@
 엣지에서 돌려준다. 오리진을 타지 않으므로 Fast Origin Transfer가 더 쌓이지 않는다.
 **사이트는 의도적으로 내려가 있는 상태다** — 장애가 아니다.
 
-- 같은 팀의 `project-eval`·`netlify_deploy`는 라이브로 남겼다. 커스텀 도메인이 없고
-  마지막 배포가 6~7월이라 트래픽이 사실상 없다. 초과의 원인이 아니다.
+- 같은 팀의 `project-eval`·`netlify_deploy`도 **같이 정지시켰다.** 셋 다 503이다.
+  초과의 원인은 아니다(도메인 없음, 마지막 배포 6~7월) — 다만 전송량은 **팀 합산**이라
+  남겨둘 이유가 없었다. 되살릴 때 `psynet-project-market`만 unpause하면 된다.
 - **로컬 dev(3000)는 영향 없다.** 계속 띄워놓고 작업할 수 있다.
 - 리셋 날짜는 API로 못 본다(Hobby는 `billing.period: null`).
   대시보드 **Usage → Current period**에서 확인할 것. 팀 생성일은 2025-07-14.
@@ -91,6 +92,7 @@
 ### 리셋되면 할 일 (순서대로)
 
 1. `POST /v1/projects/<id>/unpause?teamId=<team>` — 정지 해제
+   (**`psynet-project-market`만.** 나머지 둘은 쓰지 않으니 정지로 둔다)
 2. `GET /v2/teams/<team>` 에서 **`softBlock`이 사라졌는지 확인**. 남아 있으면 배포는 또 거절된다.
 3. `git push origin main` (또는 `npx.cmd vercel deploy --prod`)
 4. **`condbar`가 HTML에 있는지로 신버전 확인.** 200은 증거가 아니다.
