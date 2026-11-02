@@ -186,6 +186,17 @@ node scripts/warm-cache.mjs match m-fra-mar
 - **관리자(`/admin`)**: 비밀번호 하나(`ADMIN_PASSWORD` env). **값은 문서에 적지 말 것** — Vercel 환경변수와 로컬 `.env.local`에만. 2026-08-19 노출 이력으로 1회 교체됨(git 히스토리 재작성은 일부러 안 함 — 이미 무효한 값이라 의미 없고 GitHub 캐시·클론이 남는다. **다시 제기하지 말 것**).
 - 일반 사용자 로그인은 피봇 이후 쓰지 않는다. 박스 소유자는 `anon`.
 
+## 성격 — 비상업 · 개인 취미 프로젝트 (2026-11-02)
+
+Vercel Hobby는 **비상업·개인 용도만** 허용한다(`Receiving payment to create, update, or host
+the site`도 상업적 이용으로 본다). 그래서 이 프로젝트는 비상업임을 코드와 문서에 못박아 둔다.
+
+- **결제 수단(PG) 연동 금지.** 결제·구독·유료 기능을 붙이지 않는다. 지금 PG 라이브러리는 0개다.
+- **광고·트래킹·제휴 링크 금지.**
+- 화면의 "가격"은 전부 가상 수치다(`lib/pieces.ts`). 현금과 교환되지 않는다.
+- 고지 위치 두 곳 — `app/layout.tsx`의 `Footer()`, `README.md`의 "성격" 절. 둘은 같이 고친다.
+- 이 중 하나라도 깨면 **Pro 이상으로 올려야 한다.** 고지만 지우고 기능을 붙이면 재차단된다.
+
 ## 배포
 
 - `git push origin main`이면 끝 — public 레포 + Vercel git 연동이라 push마다 자동배포(~45s).
