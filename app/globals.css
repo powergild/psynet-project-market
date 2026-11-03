@@ -431,6 +431,18 @@ button { font-family: inherit; }
 .logrow .lg-d { margin-left: auto; font-size: 14px; font-weight: 700; color: var(--red); }
 
 /* ── 조건 바 (스포츠조각의 "조건") ───────────────────── */
+/* 조건 바 + 설문 입구. 첫 화면이 기본 격자로 바로 뜨므로, 설문은 여기로 들어간다. */
+.topacts {
+  flex: none; display: flex; align-items: stretch;
+  background: var(--paper); border-bottom: 1px solid var(--line);
+}
+/* .condbar는 단독으로 쓰일 때 width:100%다. 그대로 두면 옆 버튼을 화면 밖으로 민다. */
+.topacts .condbar { border-bottom: none; min-width: 0; width: auto; flex: 1 1 auto; }
+.redobtn {
+  flex: none; padding: 0 14px; cursor: pointer;
+  background: none; border: none; border-left: 1px solid var(--line);
+  font-size: 12px; font-weight: 600; color: var(--teal-deep); white-space: nowrap;
+}
 .condbar {
   flex: none; display: flex; align-items: center; gap: 9px; width: 100%;
   padding: 10px 16px; min-height: 44px; cursor: pointer; text-align: left;

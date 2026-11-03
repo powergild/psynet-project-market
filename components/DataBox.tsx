@@ -152,6 +152,14 @@ export default function DataBox({
     [matchId, cond, say]
   );
 
+  /** 설문 없이 쓰는 기본 격자. 경기 안이면 세부 지표, 메인이면 상위 개념. */
+  const defaultGrid = useCallback(
+    () => (sport
+      ? { rows: DETAIL_ROWS[sport], cols: DETAIL_COLS[sport] }
+      : { rows: DEFAULT_ROWS, cols: DEFAULT_COLS }),
+    [sport]
+  );
+
   // ── 복원 / 최초 생성 ─────────────────────────────
   useEffect(() => {
     if (ready.current) return;
@@ -168,8 +176,11 @@ export default function DataBox({
         }
       }
     } catch { /* 저장소 없어도 동작해야 한다 */ }
-    setSetup(true);                                // 빈 격자 대신 설문부터
-  }, [matchId]);
+    // 첫 방문은 기본 격자를 **바로** 띄운다. 설문부터 띄우면 격자를 한 번도 못 본 채
+    // 축을 고르게 되고, 그러면 무엇을 고르는 건지 알 수 없다. 설문은 "새로 짜기"로 연다.
+    const g = defaultGrid();
+    setRows(mkAxes(g.rows, scope)); setCols(mkAxes(g.cols, scope));
+  }, [matchId, scope, defaultGrid]);
 
   /** 설문 결과(또는 기본값)로 첫 격자를 만든다. */
   const start = useCallback((g: { rows: string[]; cols: string[] }) => {
@@ -467,24 +478,23 @@ export default function DataBox({
         sport={sport}
         players={match?.players}
         onDone={start}
-        onSkip={() => start(
-          sport
-            ? { rows: DETAIL_ROWS[sport], cols: DETAIL_COLS[sport] }   // 경기 안 = 세부 지표
-            : { rows: DEFAULT_ROWS, cols: DEFAULT_COLS }        // 메인 = 상위 개념
-        )}
+        onSkip={() => start(defaultGrid())}
       />
     );
   }
 
   return (
     <>
-      <button className="condbar" onClick={() => { condAtOpen.current = cond; setCondOpen(true); }}>
-        <span className="cb-l">조건</span>
-        <span className={`cb-v${cond ? " on" : ""}`}>
-          {cond ? condParts(cond).join(" + ") : "없음 (평상시)"}
-        </span>
-        <span className="cb-c">바꾸기</span>
-      </button>
+      <div className="topacts">
+        <button className="condbar" onClick={() => { condAtOpen.current = cond; setCondOpen(true); }}>
+          <span className="cb-l">조건</span>
+          <span className={`cb-v${cond ? " on" : ""}`}>
+            {cond ? condParts(cond).join(" + ") : "없음 (평상시)"}
+          </span>
+          <span className="cb-c">바꾸기</span>
+        </button>
+        <button className="redobtn" onClick={() => setSetup(true)}>새로 짜기</button>
+      </div>
 
       {pending.size > 0 && <div className="statusline">셀을 채우는 중 · {pending.size}칸 남음</div>}
       {!pending.size && glowing && <div className="statusline">이 경기를 읽는 중…</div>}
