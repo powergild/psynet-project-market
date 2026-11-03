@@ -8,7 +8,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint .",
-    "migrate:projects": "node scripts/migrate-projects.mjs"
+    "migrate:projects": "node scripts/migrate-projects.mjs",
+    "serve": "node scripts/serve.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.115.0",

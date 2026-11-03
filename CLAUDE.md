@@ -208,10 +208,21 @@ the site`도 상업적 이용으로 본다). 그래서 이 프로젝트는 비�
   **`curl`이 200이라고 배포 성공이 아니다** — 정지 중에도 구버전이 200을 준다.
   배포 확인은 `gh api repos/powergild/psynet-project-market/commits/<sha>/status`와
   HTML의 버전 식별자(`condbar` 있음 = 신버전)로 할 것. 경위·해결 경로는 WORKLOG 참고.
-- **배포는 Vercel만. Netlify로 우회하지 말 것**(2026-10-29 결정). 레포에 `netlify.toml`과
-  `mitocreate-databox` 사이트가 남아 있지만 **폴백 잔재이고 환경변수는 비어 있다 — 채우지 말 것.**
-  라이브가 두 군데로 갈리면 어느 쪽이 진짜인지 흐려지고, 막힌 건 플랫폼이 아니라 계정이라
-  옮겨도 원인이 남는다. 차단이 걸렸으면 **차단을 푸는 것**이 유일한 할 일이다.
+- **2026-11-03 결정 — 자체 호스팅으로 간다. 사내 서버 + Cloudflare Tunnel.**
+  (2026-10-29의 "Vercel만" 규칙을 이걸로 대체한다.)
+  다른 무료 호스팅으로 옮기는 건 답이 아니다 — 막힌 건 플랫폼이 아니라 계정이고,
+  어느 무료 플랜이든 전송량 한도와 비상업 심사가 똑같이 붙는다. 자체 호스팅은
+  **한도도 심사도 없다.** 이게 이 종류의 문제가 구조적으로 안 생기는 유일한 선택이다.
+  - 빌드·구동: `STANDALONE=1 npm run build` → `node .next/standalone/server.js`
+    (`next.config.ts`가 `STANDALONE=1`일 때만 `output: "standalone"`을 켠다)
+  - ⚠ **사내 서버 `192.168.100.137`은 별도 장비가 아니라 이 PC다.**
+    그래서 **이 PC가 켜져 있고 절전에 들어가지 않을 때만 사이트가 뜬다.**
+  - ⚠ **production env에 `CLAUDE_CLI`를 넣지 말 것.** `.env.local`에는 들어 있다 —
+    그대로 복사하면 `/api/warm`이 무제한 AI 호출로 열린다. 운영용 env는 따로 만든다.
+  - **Netlify는 여전히 쓰지 않는다.** `netlify.toml`과 `mitocreate-databox` 사이트는
+    폴백 잔재이고 **환경변수는 비어 있다 — 채우지 말 것.**
+  - Vercel 프로젝트 셋은 **정지 상태로 둔다.** 라이브가 두 군데로 갈리면 어느 쪽이
+    진짜인지 흐려진다. 차단 해제 요청은 별개로 살려 둔다(복구 경로 하나는 남겨 두는 것).
 - Node/npm이 PATH에 없는 환경 → `export PATH="/c/Program Files/nodejs:$PATH"`.
 - **PowerShell에서 `npx`는 실행되지 않는다** — 실행 정책이 `npx.ps1`을 거부한다(`UnauthorizedAccess`).
   명령이 시작조차 안 되는데 에러를 흘려보내면 "실행했다"고 착각한다. **`npx.cmd`를 쓸 것.**
