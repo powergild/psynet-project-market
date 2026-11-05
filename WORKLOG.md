@@ -28,7 +28,7 @@
 
 - 프로젝트 unpause REST 호출은 **200**. `https://mitocreate.ai/`도 **200**을 돌려준다.
 - 그런데 라이브는 여전히 **10/22 빌드**다. HTML에 `scobadge`·`actionbar`가 있고
-  `condbar`가 없다 — 10/22 이후 제거·추가한 것들이라 버전 식별자로 쓸 수 있다.
+  `defbar`가 없다 — 10/22 이후 제거·추가한 것들이라 버전 식별자로 쓸 수 있다.
   응답 헤더도 `Cache-Control: private, no-cache, no-store` — 전 페이지 `force-dynamic`이던
   그 빌드, 즉 전송량 초과의 원인이 된 버전이 그대로 서빙되고 있다.
 - `main`을 푸시하면(03:03:59Z) **5초 뒤** Vercel이 커밋에 상태를 단다:
@@ -95,7 +95,7 @@
    (**`psynet-project-market`만.** 나머지 둘은 쓰지 않으니 정지로 둔다)
 2. `GET /v2/teams/<team>` 에서 **`softBlock`이 사라졌는지 확인**. 남아 있으면 배포는 또 거절된다.
 3. `git push origin main` (또는 `npx.cmd vercel deploy --prod`)
-4. **`condbar`가 HTML에 있는지로 신버전 확인.** 200은 증거가 아니다.
+4. **`defbar`가 HTML에 있는지로 신버전 확인.** 200은 증거가 아니다.
 5. 응답 헤더가 `s-maxage`로 바뀌었는지 확인 — `no-store`면 아직 구버전이고,
    그건 다시 같은 초과로 가는 길이다.
 

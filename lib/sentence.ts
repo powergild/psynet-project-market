@@ -100,8 +100,8 @@ export function phraseOf(col: string): string {
 }
 
 /** 조건 슬롯. 겹친 조건은 "비 오고 라이벌전일 때"처럼 이어 붙인다. */
-function condPhrase(cond: string): string {
-  const parts = condParts(cond);
+function condPhrase(cond: string | undefined): string {
+  const parts = condParts(cond ?? "");
   if (!parts.length) return "";
   return parts.join(" · ") + "일 때, ";
 }
@@ -158,7 +158,9 @@ export function blockedPair(row: string, col: string): boolean {
   return false;
 }
 
-export type Slots = { cond: string; row: string; col: string; scope?: string | null };
+/** 조건은 2026-11-05에 박스 축에서 내려왔다(행으로 간다). 실제 경기 데이터가 붙은 뒤
+ *  셀 단위 파고들기로 되살릴 수 있어 슬롯 자체는 남겨 둔다 — 지금은 아무도 채우지 않는다. */
+export type Slots = { cond?: string; row: string; col: string; scope?: string | null };
 
 /**
  * 셀 문장.

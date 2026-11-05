@@ -1,9 +1,9 @@
 // 축 카탈로그.
-// 축은 세 갈래다 — 스포츠조각의 "조건 + 특성 + 선수"를 격자 2축에 담기 위한 분해다.
-//   조건(condition) = 박스 전체에 걸리는 맥락  (비 오는 날, 추격 중, 라이벌전 …)
-//   행(row)         = 주체                     (선수·팀·팀 특성·경기 구도)
-//   열(col)         = 특성/지표                (득점·도움·선방 … 측정하는 것)
-// 셀은 "이 조건에서, 이 주체가, 이 특성 관점으로 유리할 확률"이다.
+// 축은 두 갈래다 — 행과 열뿐이다(2026-11-05에 조건 축을 없앴다. 아래 "조건" 절 참고).
+//   행(row) = 주체 또는 요인  (선수·팀·경기 구도·날씨·상황·구장)
+//   열(col) = 특성/지표       (득점·도움·선방 … 측정하는 것)
+// 셀은 "이 기준이 이 지표 관점에서 유리할 확률"이다.
+// 날씨·상황은 주어가 아니라 요인이므로 문장이 달라진다 — lib/sentence.ts의 FACTOR_ROWS.
 // 날씨·상황을 행에 두면 선수와 동시에 세울 수 없어서 조건으로 끌어올렸다.
 // 순수 데이터/헬퍼만 — supabase import 금지(클라이언트에서도 쓴다).
 
@@ -58,37 +58,28 @@ const ROW_DEF: Record<string, { sport: Sport | "all"; level: AxisLevel; items: s
   "경기 전개": { sport: "all", level: "detail", items: unionOf("경기 전개") },
   "팀 특성":  { sport: "all", level: "detail", items: unionOf("팀 특성") },
   "팀 상태":  { sport: "all", level: "detail", items: ["이동 거리", "휴식일 수", "연전 여부"] },
-  // 같은 말이 조건·행·열 세 자리에서 각각 다른 뜻이 된다.
-  //   조건  "비일 때, 프랑스가 득점에서 앞설 확률"      전제
-  //   행    "비만 놓고 보면 홈팀이 득점에서 앞설 확률"   요인
-  //   열    "프랑스가 비에 강할 확률"                  적응도
+  // 같은 말이 행·열 두 자리에서 다른 뜻이 된다.
+  //   행  "비만 놓고 보면 홈팀이 득점에서 앞설 확률"   요인
+  //   열  "프랑스가 비에 강할 확률"                  적응도
   "날씨":     { sport: "all", level: "top",    items: ["비", "눈", "폭염", "강풍", "한파", "맑음"] },
   "상황":     { sport: "all", level: "top",    items: ["추격 중", "리드 중", "라이벌전", "원정 3연전", "주중 경기", "연장 승부"] },
   "구장":     { sport: "all", level: "detail", items: ["잔디 불량", "만원 관중", "무관중", "고지대"] },
 };
 
 /* ── 조건 ──────────────────────────────────
-   박스 전체에 걸린다. 조각의 "조건"에 해당하고, 셀 값의 전제가 된다.
-   "비 · 음바페 × 득점 기대값" = 비 올 때 음바페가 득점 관점에서 유리할 확률. */
-export type ConditionGroup = { category: string; items: string[] };
+   **2026-11-05: 박스 전체 조건을 없앴다.** 비·라이벌전 같은 것은 ROW_DEF의
+   날씨·상황·구장 분류로 이미 행에 있다. 같은 것을 축 하나로 더 빼 두니
+     · 조건을 바꿀 때마다 격자 전체를 버려야 했고(백지 버그 SCRUM-190의 원인)
+     · 비 / 폭염 / 라이벌전을 나란히 비교할 수 없었고
+     · 조건 하나 바꿀 때마다 80칸이 AI 재호출이었다.
+   그런데 2026-10-27 실측(캐시 9,440건)에서 AI가 낸 "조건 효과"는 조건과 무관한
+   평균 회귀 + 잡음이었다 — 비용과 버그만 내고 정보는 더하지 않고 있었다.
+   되돌리지 말 것. 진짜 조건 효과는 LIVE스코어 실제 데이터로만 나오고,
+   그때는 축이 아니라 **셀 단위 파고들기**로 붙인다(축을 늘리지 않는다).
 
-export const CONDITIONS: ConditionGroup[] = [
-  { category: "날씨", items: ["비", "눈", "폭염", "강풍", "한파", "맑음"] },
-  { category: "상황", items: ["추격 중", "리드 중", "라이벌전", "원정 3연전", "주중 경기", "연장 승부"] },
-  { category: "구장", items: ["잔디 불량", "만원 관중", "무관중", "고지대"] },
-];
-
-export const CONDITION_NAMES: string[] = CONDITIONS.flatMap((g) => g.items);
-
-/** 조건 없음 = 기본. 예열해 둔 캐시가 이 상태를 쓴다. */
-export const NO_CONDITION = "";
-
-/** 조건은 여러 개를 겹칠 수 있다 — 조각이 "비 오는 날 + 지고 있을 때"처럼 겹쳐 걸리기 때문이다.
- *  키는 정렬해서 합친다. 고른 순서가 달라도 같은 조각이어야 한다. */
-export const COND_SEP = "·";
-export function condKey(items: string[]): string {
-  return Array.from(new Set(items)).sort().join(COND_SEP);
-}
+   `condParts`는 남는다 — cellEngine·estimator·pieces·sentence가 쓰는 계산 경로이고,
+   지금은 빈 문자열만 들어간다. */
+const COND_SEP = "·";
 export function condParts(cond: string): string[] {
   return cond ? cond.split(COND_SEP).filter(Boolean) : [];
 }

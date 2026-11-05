@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   catalogFor, searchAxes, DEFAULT_ROWS, DEFAULT_COLS, NO_VALUE,
-  CONDITIONS, NO_CONDITION, setGlobalPlayers, condKey, condParts, DETAIL_COLS, DETAIL_ROWS,
+  setGlobalPlayers, DETAIL_COLS, DETAIL_ROWS,
   type AxisDef, type AxisKind, type Sport,
 } from "@/lib/axes";
 import { recommendAxis, recommendForCell, type AxisOffer } from "@/lib/market";
@@ -79,9 +79,6 @@ export default function DataBox({
   const [ghost, setGhost] = useState<AxisOffer | null>(null);
   const [sco, setSco] = useState(120);
   const [dialog, setDialog] = useState<Dialog | null>(null);
-  const [cond, setCond] = useState<string>(NO_CONDITION);   // 박스 전체 조건(조각의 "조건")
-  const [condOpen, setCondOpen] = useState(false);
-  const condAtOpen = useRef("");
 
   const toastT = useRef<ReturnType<typeof setTimeout> | null>(null);
   const ready = useRef(false);
@@ -128,7 +125,6 @@ export default function DataBox({
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               matchId,
-              cond,
               pairs: part.map((p) => ({
                 row: { id: p.row.id, name: p.row.ax, ctx: p.row.ctx, src: p.row.src },
                 col: { id: p.col.id, name: p.col.ax, ctx: p.col.ctx, src: p.col.src },
@@ -149,7 +145,7 @@ export default function DataBox({
       }
       setPending(new Set());
     },
-    [matchId, cond, say]
+    [matchId, say]
   );
 
   /** 설문 없이 쓰는 기본 격자. 경기 안이면 세부 지표, 메인이면 상위 개념. */
@@ -171,7 +167,6 @@ export default function DataBox({
         if (Array.isArray(s.rows) && s.rows.length) {
           setRows(s.rows); setCols(s.cols ?? []); setCells(s.cells ?? {});
           if (s.name) setName(s.name);
-          if (typeof s.cond === "string") setCond(s.cond);
           return;
         }
       }
@@ -192,9 +187,9 @@ export default function DataBox({
   useEffect(() => {
     if (!rows.length) return;
     try {
-      window.localStorage.setItem(storeKey(matchId), JSON.stringify({ name, cond, rows, cols, cells }));
+      window.localStorage.setItem(storeKey(matchId), JSON.stringify({ name, rows, cols, cells }));
     } catch {}
-  }, [name, cond, rows, cols, cells, matchId]);
+  }, [name, rows, cols, cells, matchId]);
 
   // ── 화면 채우기 ──────────────────────────────────
   // 칸 크기는 고정이다. 남는 자리는 늘려서가 아니라 **항목을 더 넣어서** 채운다.
@@ -259,7 +254,7 @@ export default function DataBox({
       const res = await fetch("/api/glow", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ matchId, boxId: boxId(matchId), boxName: name, cond, cells: cands }),
+        body: JSON.stringify({ matchId, boxId: boxId(matchId), boxName: name, cells: cands }),
       });
       const d = await res.json();
       if (d.ok) {
@@ -274,7 +269,7 @@ export default function DataBox({
       } else setGlow({ cells: [], line: "", ok: false });
     } catch { setGlow({ cells: [], line: "", ok: false }); }
     setGlowing(false);
-  }, [matchId, rows, cols, cells, pending.size, settled, name, cond, say]);
+  }, [matchId, rows, cols, cells, pending.size, settled, name, say]);
 
   // 경기 안에서 격자가 다 채워지면 바로 읽는다. 유저가 버튼을 누를 일이 아니다.
   const analyzedFor = useRef<string>("");
@@ -374,7 +369,7 @@ export default function DataBox({
     ];
     setFormula({
       rowId: r.id, colId: c.id,
-      title: sentenceOf({ cond, row: r.ax, col: c.ax }),   // 조각 이름 = 그 셀이 묻는 문장
+      title: sentenceOf({ row: r.ax, col: c.ax }),   // 조각 이름 = 그 셀이 묻는 문장
       base, terms,
       base0: terms.reduce((a, b) => a + b.w, 0),
     });
@@ -386,29 +381,6 @@ export default function DataBox({
     const v = reweigh(formula.base, now / formula.base0);
     setCells((p) => ({ ...p, [ck(formula.rowId, formula.colId)]: v }));
     setFormula(null); say("계산식 조정 완료");
-  };
-
-  /**
-   * 조건은 겹칠 수 있다 — "비 오는 날 + 지고 있을 때"처럼.
-   * 반드시 함수형으로 갱신한다. 그냥 cond를 읽으면 연속으로 누를 때 앞 선택이 날아간다.
-   */
-  const toggleCond = (item: string) => {
-    setCond((prev) => {
-      const cur = condParts(prev);
-      return condKey(cur.includes(item) ? cur.filter((x) => x !== item) : [...cur, item]);
-    });
-  };
-
-  /**
-   * 고르는 동안에는 다시 계산하지 않고, 시트를 닫을 때 한 번만 한다 —
-   * 조건 하나 누를 때마다 격자 전체를 다시 계산하면 느리고 비싸다.
-   */
-  const closeCond = () => {
-    setCondOpen(false);
-    if (cond === condAtOpen.current) return;
-    setCells({});                       // 전제가 바뀌었다 — 옛 값을 들고 있으면 거짓말이 된다
-    setGlow(null);
-    say(cond ? `조건: ${condParts(cond).join(" + ")}` : "조건을 해제했습니다.");
   };
 
   /**
@@ -425,7 +397,7 @@ export default function DataBox({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          matchId, cond,
+          matchId,
           row: { id: r.id, name: r.ax, ctx: r.ctx, src: r.src },
           col: { id: c.id, name: c.ax, ctx: c.ctx, src: c.src },
         }),
@@ -485,14 +457,10 @@ export default function DataBox({
 
   return (
     <>
+      {/* 조건 바가 있던 자리. 셀이 무슨 숫자인지는 어디에도 적혀 있지 않았다 —
+          조건을 행으로 내리면서 비는 이 줄에 정의를 둔다. */}
       <div className="topacts">
-        <button className="condbar" onClick={() => { condAtOpen.current = cond; setCondOpen(true); }}>
-          <span className="cb-l">조건</span>
-          <span className={`cb-v${cond ? " on" : ""}`}>
-            {cond ? condParts(cond).join(" + ") : "없음 (평상시)"}
-          </span>
-          <span className="cb-c">바꾸기</span>
-        </button>
+        <p className="defbar">칸 = 왼쪽 기준이 위쪽 지표에서 <b>유리할 확률</b> · <span className="dim">—는 근거가 없어 비워둔 것</span></p>
         <button className="redobtn" onClick={() => setSetup(true)}>새로 짜기</button>
       </div>
 
@@ -580,7 +548,7 @@ export default function DataBox({
             <div className="grab"><i /></div>
             <div className="shead stack">
               <span className="bname wrap">
-                {sentenceOf({ cond, row: ask.r.ax ?? "", col: ask.c.ax ?? "" })}
+                {sentenceOf({ row: ask.r.ax ?? "", col: ask.c.ax ?? "" })}
               </span>
               <span className="spacer" />
               <button className="btn" onClick={() => setAsk(null)}>닫기</button>
@@ -590,46 +558,6 @@ export default function DataBox({
               <button className="btn pri grow" disabled={asking} onClick={() => { void requestInfo(); }}>
                 {asking ? "찾아보는 중…" : "데이터 요청하기"}
               </button>
-            </div>
-          </div>
-        </>
-      )}
-
-      {/* ── 조건 고르기 (조각의 "조건") ── */}
-      {condOpen && (
-        <>
-          <div className="scrim" onClick={closeCond} />
-          <div className="sheet" role="dialog" aria-label="조건 고르기">
-            <div className="grab"><i /></div>
-            <div className="shead">
-              <span className="bname">조건 고르기</span>
-              <span className="spacer" />
-              <button className="btn pri" onClick={closeCond}>적용</button>
-            </div>
-            <p className="shint">
-              박스 전체에 걸립니다. “비 오는 날 음바페가 득점 관점에서 유리할 확률”처럼
-              <b> 값의 전제</b>가 바뀝니다. 여러 개를 겹쳐 걸 수 있고,
-              겹칠수록 맞았을 때 조각이 더 자랍니다.
-            </p>
-            <div className="sbody">
-              <div className="pickgrid">
-                <button className={`pick${cond ? "" : " on"}`} onClick={() => setCond(NO_CONDITION)}>
-                  없음 (평상시)
-                </button>
-              </div>
-              {CONDITIONS.map((g) => (
-                <div className="axgroup" key={g.category}>
-                  <div className="gl">{g.category}</div>
-                  <div className="pickgrid">
-                    {g.items.map((it) => (
-                      <button key={it} className={`pick${condParts(cond).includes(it) ? " on" : ""}`}
-                              onClick={() => toggleCond(it)}>
-                        {it}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              ))}
             </div>
           </div>
         </>
@@ -683,7 +611,7 @@ export default function DataBox({
             <div className="grab"><i /></div>
             <div className="shead">
               <span className="bname wrap">
-                {sentenceOf({ cond, row: cellRec.row, col: cellRec.col })}
+                {sentenceOf({ row: cellRec.row, col: cellRec.col })}
               </span>
               <span className="chip amber">발광</span>
               <span className="spacer" />

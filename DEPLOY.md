@@ -38,7 +38,7 @@ node scripts/serve.mjs
 | 응답 | `200` |
 | `Cache-Control` | `s-maxage=31536000` — **`no-store`가 아니다.** 차단 원인이 사라졌다 |
 | `x-nextjs-cache` | `HIT` (prerender에서 바로 나감) |
-| 신버전 식별자 `condbar` | 있음 |
+| 신버전 식별자 `defbar` | 있음 |
 | `/api/warm` | `403` |
 
 ---
@@ -126,11 +126,11 @@ Windows 서비스로 등록되어 부팅 시 자동 시작한다.
 
 ```bash
 curl -sI https://mitocreate.ai | grep -i "cache-control\|cf-cache-status\|server"
-curl -s https://mitocreate.ai | grep -c condbar     # 1 이면 신버전
+curl -s https://mitocreate.ai | grep -c defbar     # 1 이면 신버전
 ```
 
 - `cf-cache-status: HIT` 가 뜨면 Cloudflare가 캐시해 주는 것이다 — 이 PC로 오는 요청이 줄어든다.
-- **`200`이 왔다고 배포 성공이 아니다.** 반드시 `condbar`로 버전을 확인할 것.
+- **`200`이 왔다고 배포 성공이 아니다.** 반드시 `defbar`로 버전을 확인할 것.
 
 ---
 

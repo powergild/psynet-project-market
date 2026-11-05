@@ -78,6 +78,8 @@ async function warm(scope, matchId, label, cond = "") {
 
 // 자주 쓰는 조건은 미리 깔아 둔다 — 조건이 바뀌면 캐시 키가 달라져 전부 미스가 된다.
 // WARM_CONDS="비,추격 중" 처럼 지정하거나, 비우면 조건 없음만 예열한다.
+// ⚠ 2026-11-05에 조건 축을 없앴다 — 앱이 조건을 보내지 않으므로 WARM_CONDS로 예열해도
+//   아무도 그 캐시를 조회하지 않는다. 비워 둘 것(기본값이 그렇다).
 const CONDS = ["", ...(process.env.WARM_CONDS ? process.env.WARM_CONDS.split(",").map((s) => s.trim()).filter(Boolean) : [])];
 
 const [, , arg1, arg2] = process.argv;
