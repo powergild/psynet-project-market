@@ -19,7 +19,14 @@ GitHub 저장소 **`powergild/psynet-project-market`** 는 **public** — 실명
 
 URL·레포·Supabase는 그대로 두고 **안의 서비스만** 바꿨다. 그래서 두 가지가 계속 남는다:
 
-- **옛 테이블** `projects` / `applications` / `connect_*` / `users` — Supabase에 아직 있다. **건드리지 않고 방치한다.** `users`에는 실명·전화번호가 들어 있다.
+- **옛 테이블** — **2026-11-09에 지웠다.** 그전까지는 "건드리지 않고 방치"였는데 방침을 바꿨다. `users`에 실명·전화번호·이메일, `projects`에 PM 전화번호, `admin_access_log`에 접근 IP가 들어 있었고, 읽는 코드가 사라진 뒤에는 **쓰이지 않는 PII를 운영 DB에 남겨 둘 이유가 없다.**
+  - 행은 REST로 비웠고(전 테이블 0행 확인), 테이블은 `supabase/migrations/2026-11-09-drop-old-service-tables.sql`로 떨어뜨린다.
+  - **백업은 남기지 않았다.** 사용자가 백업 없이 삭제를 택했다 — 되돌릴 수 없다. 멤버 정보가 다시 필요하면 새로 받는다.
+  - 대상: `users` · `projects` · `applications` · `participants` · `project_participants` · `connect_rooms` · `connect_messages` · `connect_likes` · `connect_projects` · `connect_liveness` · `admin_access_log` · `admin_alert_state`
+
+> **`axis_catalog` · `box_axes` · `box_cells` · `cell_formulas`는 옛 테이블이 아니다.** 참조가 0이라 헷갈리기 쉽지만 **현재 제품의 10-20 마이그레이션**이 만든 것이고, 박스를 localStorage에서 Supabase로 옮길 때(SCRUM-180) 쓸 자리다. 옛 테이블 정리에 휩쓸려 지우지 말 것.
+>
+> **`boxes`도 지우지 말 것.** `owner_phone` 컬럼이 있어 PII처럼 보이지만 데이터 박스 쪽 테이블이고(`lib/boxDb.ts`가 쓴다, `glow_records`가 참조한다) 값은 `anon`이다.
 - **옛 코드** — 아래 두 차례에 걸쳐 지웠다.
 
 **1차 (2026-10-20)**: 터미널 UI, 미토크리에이트 매칭, 프로젝트 등록 화면.
