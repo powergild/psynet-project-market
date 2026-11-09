@@ -219,6 +219,13 @@ export default function DataBox({
     const used = new Set([...rows, ...cols].map((a) => a.ax));
     const pool = (kind: AxisKind, n: number) =>
       catalogFor(kind, match?.players, sport, match ? "detail" : "top")
+        // 메인에서는 선수로 빈자리를 메우지 않는다. 메인 박스는 경기에 묶이지 않아서
+        // "어느 경기의 선수인지"가 없는데, 선수 그룹이 카탈로그 맨 앞이라 일반 축보다
+        // 먼저 뽑혔다. 그래서 「홈팀·원정팀」 밑에 특정 경기 선수가 종목까지 섞여 붙고,
+        // 그중 상당수는 근거가 없어 `—`로만 남아 자리만 차지했다.
+        // 선수는 유저가 고르는 것이지 자동으로 채워 넣을 재료가 아니다.
+        // (경기 안에서는 그대로 둔다 — 그 선수들은 지금 그 경기에 있다.)
+        .filter((g) => match || g.category !== "선수")
         .flatMap((g) => g.items.map((i) => i.name))
         .filter((x) => !used.has(x))
         .slice(0, n);

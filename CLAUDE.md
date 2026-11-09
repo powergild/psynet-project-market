@@ -256,7 +256,24 @@ the site`도 상업적 이용으로 본다). 그래서 이 프로젝트는 비�
 - 고지 위치 두 곳 — `app/layout.tsx`의 `Footer()`, `README.md`의 "성격" 절. 둘은 같이 고친다.
 - 이 중 하나라도 깨면 **Pro 이상으로 올려야 한다.** 고지만 지우고 기능을 붙이면 재차단된다.
 
-## 배포
+## 배포 — **2026-11-09부터 멈춰 있다. 로컬 전용이다.**
+
+> **공개 배포를 하지 않는다.** 같은 날 사내에서 `mitocreate.ai`의 네임서버를 회수했다
+> (Cloudflare → `ns1~4.psynet.co.kr`). **사내 결정이고 되돌리지 않는다.**
+>
+> 그래서 도메인은 더 이상 이 PC를 가리키지 않는다. Cloudflare Tunnel은
+> `<터널ID>.cfargotunnel.com`을 가리키는 CNAME으로만 동작하고 그 CNAME은
+> **Cloudflare가 관리하는 존에서만** 유효하므로, 사내 NS가 유지되는 한 터널 구성은 쓸 수 없다.
+>
+> **지금 개발은 `npm run dev`로만 한다.** 아래 자체 호스팅 절차는 되살릴 때를 위해 남겨 둔다.
+>
+> 멈춰 둔 것 둘 — 되살리려면 각각 `Enable`/`start= auto`로 되돌린다:
+> - 작업 `databox-server` (오리진 자동시작) → `Disabled`
+> - 서비스 `CloudflaredDatabox` (터널) → `start= disabled`
+>
+> 되살리는 조건: **도메인 위임이 다시 Cloudflare로 오거나**, 사내 NS에서 이 PC로
+> 보내는 다른 경로(고정 IP + 포트 개방 등)를 쓰기로 정할 때. 후자는 지금 구조의 장점
+> (오리진 IP 은닉 · 포트 미개방)을 버리는 것이므로 그때 다시 판단한다.
 
 - **`git push`로는 배포되지 않는다.** 자체 호스팅이라 push는 코드만 올린다.
   라이브에 반영하려면 **이 PC에서 `STANDALONE=1 npm run build`를 돌려야** 한다.
