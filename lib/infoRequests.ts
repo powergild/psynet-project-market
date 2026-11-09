@@ -29,19 +29,8 @@ export async function logInfoRequest(k: InfoRequestKey): Promise<void> {
   });
 }
 
-export type HotRequest = { row: string; col: string; cond: string; requests: number };
-
-/** 많이 요청된 것부터. 데이터 연동 우선순위로 쓴다. */
-export async function hotRequests(limit = 30): Promise<HotRequest[]> {
-  const { data, error } = await supabase
-    .from("info_requests")
-    .select("row_axis,col_axis,condition,requests")
-    .eq("resolved", false)
-    .order("requests", { ascending: false })
-    .limit(limit);
-  if (error || !data) return [];
-  return (data as Record<string, unknown>[]).map((r) => ({
-    row: String(r.row_axis), col: String(r.col_axis),
-    cond: String(r.condition ?? ""), requests: Number(r.requests),
-  }));
-}
+// `hotRequests()`는 2026-11-09에 지웠다. 읽는 쪽이 `/admin` 하나뿐이었고
+// 그 화면이 피벗 전 프로젝트의 것이라 함께 사라졌다.
+// 요청은 계속 쌓이므로 우선순위가 필요해지면 Supabase에서 직접 조회한다:
+//   select row_axis, col_axis, requests from info_requests
+//   where resolved = false order by requests desc;

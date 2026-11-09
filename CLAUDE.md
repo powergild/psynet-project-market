@@ -2,11 +2,42 @@
 
 > **진행 상황·다음 할 일은 [WORKLOG.md](./WORKLOG.md)에 있음.** 이 파일은 구조·규칙 설명용(잘 안 바뀜), WORKLOG는 세션마다 갱신. 작업 시작 전 WORKLOG 먼저 읽고, 끝나면 WORKLOG부터 업데이트할 것.
 
-유저가 스포츠 데이터 축을 엑셀처럼 자유 조합하면 AI가 교차 셀을 **승률(%)** 로 채우고, 경기에 들어가면 유효한 셀이 **발광**하는 개인화 분석 도구. Next.js 15(App Router) + TypeScript + Supabase(Postgres). Vercel(`psynet-project-market`, 계정 junholee940930)에 배포, 도메인 `mitocreate.ai`.
+유저가 스포츠 데이터 축을 엑셀처럼 자유 조합하면 AI가 교차 셀을 **승률(%)** 로 채우고, 경기에 들어가면 유효한 셀이 **발광**하는 개인화 분석 도구. Next.js 15(App Router) + TypeScript + Supabase(Postgres). 도메인 `mitocreate.ai`, **이 PC에서 자체 호스팅**(「배포」 절 참고 — Vercel이 아니다).
 
 GitHub 저장소 **`powergild/psynet-project-market`** 는 **public** — 실명·비공개 데이터는 절대 git에 커밋하지 말 것.
 
-> **2026-10-20 피봇**: 이 레포는 원래 사내 프로젝트 매칭 플랫폼(PROJECT MARKET)이었다. URL·Vercel·Supabase·레포는 그대로 두고 **안의 서비스만 통째로 바꿨다.** 구 서비스 코드(터미널 UI, 미토크리에이트 매칭, 프로젝트 등록)는 삭제됐고, 구 테이블(`projects`/`applications`/`connect_*`/`users`)은 건드리지 않고 방치한다.
+## 피벗 이력 — 레포 이름과 서비스가 다른 이유
+
+이 레포는 **서비스가 한 번 통째로 바뀌었다.** 이름(`psynet-project-market`)과 Supabase 프로젝트는 옛 것 그대로다. 코드에서 어울리지 않는 것을 보면 거의 다 여기서 설명된다.
+
+| | 전 (~2026-10-20) | 지금 |
+|---|---|---|
+| 서비스 | **PROJECT MARKET** — 사내 프로젝트 매칭 | **내 데이터 박스** — 스포츠 데이터 격자 |
+| 쓰는 방식 | **채팅창**에 말을 걸어 프로젝트를 찾고 지원 | 격자에 행·열을 세우고 셀을 읽는다 |
+| 주체 | 실명 사내 멤버(전화번호 로그인) | `anon` — 로그인 없음 |
+| 거래 | 사람과 프로젝트 | 박스와 축(SCO) |
+
+URL·레포·Supabase는 그대로 두고 **안의 서비스만** 바꿨다. 그래서 두 가지가 계속 남는다:
+
+- **옛 테이블** `projects` / `applications` / `connect_*` / `users` — Supabase에 아직 있다. **건드리지 않고 방치한다.** `users`에는 실명·전화번호가 들어 있다.
+- **옛 코드** — 아래 두 차례에 걸쳐 지웠다.
+
+**1차 (2026-10-20)**: 터미널 UI, 미토크리에이트 매칭, 프로젝트 등록 화면.
+
+**2차 (2026-11-09)** — 남아 있던 잔존물을 전부 걷어냈다. 되살리지 말 것:
+
+| 지운 것 | 왜 |
+|---|---|
+| `/admin` · `/api/admin-auth` · `AdminLogin` · `AdminLogout` | 옛 서비스의 운영 화면. 데이터 박스에는 운영할 대상이 없다 |
+| `lib/admin.ts` · `lib/auth.ts` | `users` 테이블(실명·전화번호)을 읽던 **유일한** 두 모듈. 이제 **앱에서 PII로 가는 경로가 없다** |
+| `lib/adminAuth.ts` · `lib/adminAlert.ts` · `lib/mailer.ts` | 비밀번호·접근알림 메일. 지킬 화면이 사라져 함께 간다 |
+| `lib/supabase.ts`의 행 타입 7개 | `ApplicationRow`·`UserRow`·`ConnectRoomRow`·`ConnectMessageRow`·`ConnectLikeRow`·`ConnectProjectRow`·`ProjectParticipantRow`. 전부 참조 0 |
+| `infoRequests.hotRequests()` | 읽는 쪽이 `/admin` 하나뿐이었다 |
+| `netlify.toml` · `.netlify/`(81MB) | Netlify는 쓰지 않는다. 폴백 잔재였다 |
+| `psynet-project-market (1).html` | 옛 서비스 프로토타입 |
+| env `ADMIN_PASSWORD` · `RESEND_API_KEY` · `ALERT_EMAIL_*` | 쓰는 코드가 사라졌다. `ALERT_EMAIL_TO`에는 **실제 사내 메일 주소**가 적혀 있었다 — public 레포다 |
+
+> `/admin`이 사라져서 좋은 점이 하나 더 있다. 그 화면은 **비밀번호 하나로** 공개 인터넷에 떠 있었고(시도 횟수 제한 없음), 안에 실명·전화번호 표가 있었다. 기능을 지키려 자물쇠를 보강하는 대신 **지킬 것 자체를 없앴다.**
 
 원본 기획: `데이터박스-기획서.md`(SPEC-2026-000 v2.5) + `데이터박스-앱.html` 프로토타입. 둘 다 레포 밖(Downloads)에 있고 커밋하지 않는다.
 
@@ -33,7 +64,8 @@ GitHub 저장소 **`powergild/psynet-project-market`** 는 **public** — 실명
 | `/market` | 박스 마켓 (SCR-004) | 정렬 탭(적중률·인기·최신) |
 | `/box/[id]` | 박스 상세 (SCR-005) | SCO 열람 → 셀 값 공개 → 축 가져오기 |
 | `/wallet` | SCO 지갑 (SCR-006) | |
-| `/admin` | 관리자 | 비밀번호 보호(구 서비스에서 유지) |
+
+경로는 이 여섯 개뿐이다. 관리자 화면은 없다(「피벗 이력」 참고).
 
 **메인과 경기 박스는 서로 다른 박스다.** 저장 키가 `databox_v1:global` / `databox_v1:<matchId>`로 갈린다. 플로팅 버튼(기획서 SCR-000)은 두지 않았다 — 호스트 앱 없이 단독 웹으로 뜨므로 박스가 첫 화면이어야 한다.
 
@@ -199,10 +231,12 @@ node scripts/warm-cache.mjs match m-fra-mar
 - **SCO** — `lib/wallet.ts`, localStorage. 실제 정산(F-13)은 범위 밖.
 - **박스 영속** — localStorage. 계정 간 이동·기기 간 동기화는 아직 없다.
 
-## 인증
+## 인증 — **없다**
 
-- **관리자(`/admin`)**: 비밀번호 하나(`ADMIN_PASSWORD` env). **값은 문서에 적지 말 것** — Vercel 환경변수와 로컬 `.env.local`에만. 2026-08-19 노출 이력으로 1회 교체됨(git 히스토리 재작성은 일부러 안 함 — 이미 무효한 값이라 의미 없고 GitHub 캐시·클론이 남는다. **다시 제기하지 말 것**).
-- 일반 사용자 로그인은 피봇 이후 쓰지 않는다. 박스 소유자는 `anon`.
+- 로그인이 없다. 박스 소유자는 전부 `anon`이고, 박스는 브라우저 localStorage에 있다.
+- **관리자 비밀번호도 없다.** `ADMIN_PASSWORD`는 2026-11-09에 코드·`.env.example`에서 사라졌다. (2026-08-19에 한 번 노출돼 교체한 이력이 있다. git 히스토리 재작성은 일부러 하지 않았다 — 이미 무효한 값이고 GitHub 캐시·클론이 남는다. **다시 제기하지 말 것.** 이제는 변수 자체가 쓰이지 않으므로 완전히 닫힌 문제다.)
+- **인증이 없다는 건 API가 열려 있다는 뜻이다.** `/api/glow`가 미인증이고 `boxId`가 전 사용자 공유(`box_global`)라 남의 기록을 지우거나 위조할 수 있다. 인증을 붙이는 게 아니라 **박스마다 임의 UUID + 쿠키 대조**로 막는 방향 (SCRUM-189).
+- 예외 하나 — `/api/warm`은 `CLAUDE_CLI=1`일 때만 열린다. 운영 env에 그 변수를 넣으면 **무제한 AI 호출 창구**가 된다. `scripts/serve.mjs`가 이 변수를 강제로 떨구는 이유다.
 
 ## 성격 — 비상업 · 개인 취미 프로젝트 (2026-11-02)
 
@@ -217,7 +251,9 @@ the site`도 상업적 이용으로 본다). 그래서 이 프로젝트는 비�
 
 ## 배포
 
-- `git push origin main`이면 끝 — public 레포 + Vercel git 연동이라 push마다 자동배포(~45s).
+- **`git push`로는 배포되지 않는다.** 자체 호스팅이라 push는 코드만 올린다.
+  라이브에 반영하려면 **이 PC에서 `STANDALONE=1 npm run build`를 돌려야** 한다.
+  (2026-10-29 이전에는 Vercel git 연동으로 push마다 자동배포였다. 그 습관을 조심할 것.)
 - ⚠️ **2026-10-29 현재 Vercel 팀이 차단되어 배포가 생성되지 않는다.** push하면 5초 뒤 커밋에
   `failure / "Account is blocked."`가 달린다. 라이브는 10/22 빌드가 그대로 서빙 중.
   사유는 확정 — `softBlock.reason = FAIR_USE_LIMITS_EXCEEDED`,
@@ -237,8 +273,8 @@ the site`도 상업적 이용으로 본다). 그래서 이 프로젝트는 비�
     그래서 **이 PC가 켜져 있고 절전에 들어가지 않을 때만 사이트가 뜬다.**
   - ⚠ **production env에 `CLAUDE_CLI`를 넣지 말 것.** `.env.local`에는 들어 있다 —
     그대로 복사하면 `/api/warm`이 무제한 AI 호출로 열린다. 운영용 env는 따로 만든다.
-  - **Netlify는 여전히 쓰지 않는다.** `netlify.toml`과 `mitocreate-databox` 사이트는
-    폴백 잔재이고 **환경변수는 비어 있다 — 채우지 말 것.**
+  - **Netlify는 쓰지 않는다.** `netlify.toml`과 `.netlify/`는 2026-11-09에 지웠다.
+    Netlify 쪽 `mitocreate-databox` 사이트는 남아 있지만 **환경변수가 비어 있다 — 채우지 말 것.**
   - Vercel 프로젝트 셋은 **정지 상태로 둔다.** 라이브가 두 군데로 갈리면 어느 쪽이
     진짜인지 흐려진다. 차단 해제 요청은 별개로 살려 둔다(복구 경로 하나는 남겨 두는 것).
 - Node/npm이 PATH에 없는 환경 → `export PATH="/c/Program Files/nodejs:$PATH"`.

@@ -22,72 +22,8 @@ export const supabase = new Proxy({} as SupabaseClient, {
   },
 });
 
-export type ApplicationRow = {
-  id: number;
-  project_id: string;
-  applicant: string;
-  role: string;
-  message: string | null;
-  status: "pending" | "accepted" | "rejected";
-  created_at: string;
-};
-
-export type UserRow = {
-  id: number;
-  phone: string;
-  name: string;
-  email: string | null;
-  skills: string[];
-  completed_projects: string[];
-  created_at: string;
-  last_login_at: string;
-  is_external: boolean;
-};
-
-export type ConnectRoomRow = {
-  id: number;
-  participant_a_phone: string;
-  participant_a_name: string;
-  participant_b_phone: string;
-  participant_b_name: string;
-  status: "active" | "ended";
-  created_at: string;
-  ended_at: string | null;
-};
-
-export type ConnectMessageRow = {
-  id: number;
-  room_id: number;
-  sender_phone: string;
-  sender_name: string;
-  content: string;
-  created_at: string;
-};
-
-export type ConnectLikeRow = {
-  id: number;
-  room_id: number;
-  liker_phone: string;
-  liked_phone: string;
-  created_at: string;
-};
-
-export type ConnectProjectRow = {
-  id: number;
-  room_id: number;
-  title: string;
-  summary: string | null;
-  pm_phone: string;
-  pm_name: string;
-  partner_phone: string;
-  partner_name: string;
-  created_at: string;
-};
-
-export type ProjectParticipantRow = {
-  id: number;
-  project_id: string;
-  name: string;
-  role: string;
-  created_at: string;
-};
+// 테이블 행 타입은 여기 두지 않는다.
+// 2026-11-09까지 ApplicationRow·UserRow·ConnectRoomRow·ConnectMessageRow·
+// ConnectLikeRow·ConnectProjectRow·ProjectParticipantRow 일곱 개가 남아 있었는데
+// 전부 피벗 전 「프로젝트 마켓 + 커넥트 채팅」의 것이고 참조가 0이었다.
+// 데이터 박스의 행 타입은 각 모듈(boxDb·market·wallet·pieces)이 자기 것만 갖는다.

@@ -43,16 +43,35 @@ node scripts/serve.mjs
 
 ---
 
-## 2. 부팅 시 자동 실행 (작업 스케줄러)
+## 2. 부팅 시 자동 실행 (작업 스케줄러) — 2026-11-09 재작성
 
-PC를 껐다 켜도 서버가 혼자 올라오게 한다.
+PC를 껐다 켜도 서버가 혼자 올라오게 한다. **관리자 PowerShell에서** 한 번:
 
-```bash
-schtasks /Create /TN "databox-server" /SC ONSTART /RL HIGHEST /RU "%USERNAME%" ^
-  /TR "node \"C:\Users\psynet1\Desktop\이준호\mitocreate.ai\mitocreate-web\scripts\serve.mjs\""
+```
+powershell -NoProfile -ExecutionPolicy Bypass -File C:\Users\psynet1\databox\register-task.ps1
 ```
 
-등록 후 확인: `schtasks /Query /TN "databox-server"`
+레포 밖, ASCII 경로에 파일 둘이 있다:
+
+| 파일 | 역할 |
+|---|---|
+| `C:\Users\psynet1\databox\start-databox.ps1` | 런처. `serve.mjs`를 돌리고, 죽으면 5초 뒤 되살린다. 로그는 `databox\serve.log` |
+| `C:\Users\psynet1\databox\register-task.ps1` | 작업 등록. 같은 이름이 있으면 지우고 다시 만든다 |
+
+> ⚠ **이 파일들이 레포 안이 아니라 ASCII 경로에 있는 이유.**
+> 프로젝트 경로에 한글(`이준호`)이 있어서, 그 경로를 **명령줄에 넣으면** 콘솔 코드페이지에 따라
+> 깨진다(2026-11-09에 실제로 겪었다). 그래서 한글 경로는 **파일 안에만** 적고,
+> 명령줄에는 ASCII 경로만 둔다. 런처는 UTF-8 **BOM 포함**으로 저장해야 PowerShell 5.1이 제대로 읽는다.
+
+> ⚠ **옛 문서에 있던 `schtasks /Create ... ^` 한 줄짜리 명령은 쓰지 말 것.**
+> `^`는 cmd의 줄바꿈이라 Git Bash·PowerShell에서 깨지고, `%USERNAME%`도 확장되지 않는다.
+> 그 명령은 **"성공"을 출력하면서 작업을 만들지 않았다** — `Get-ScheduledTask` 조회 0건,
+> `C:\Windows\System32\Tasks\`에 XML도 없었다. 그래서 `register-task.ps1`은 등록 직후
+> 되조회해서 없으면 `throw`한다. **등록 성공 메시지를 증거로 삼지 말 것.**
+
+설정은 이 PC에서 **실제로 도는** `ClonetownServer` 작업을 베꼈다 —
+`UserId psynet1` · `LogonType S4U`(비밀번호 저장 없이, 로그인 안 해도 부팅 때 실행) ·
+트리거 둘(부팅 + 로그온) · `ExecutionTimeLimit 0`(상시 서버라 필수) · `MultipleInstances IgnoreNew`.
 
 ---
 
@@ -112,13 +131,58 @@ cloudflared tunnel run databox
 
 ---
 
-## 6. 터널도 서비스로 등록
+## 6. 터널도 서비스로 등록 — 2026-11-09 재작성
 
-```bash
-cloudflared service install
+**`cloudflared service install`을 쓰지 말 것.** 그 명령은 `--config` **없이** 서비스를 등록한다.
+그래서 설정 파일을 어디에 복사해도 서비스는 그것을 읽지 않는다. 직접 등록한다 —
+**관리자 PowerShell에서**:
+
+```
+sc.exe create CloudflaredDatabox binPath= "C:\cloudflared\cloudflared.exe --config C:\Windows\System32\config\systemprofile\.cloudflared\config.yml --no-autoupdate tunnel run" start= auto
+sc.exe failure CloudflaredDatabox reset= 86400 actions= restart/5000/restart/10000/restart/30000
+sc.exe start CloudflaredDatabox
 ```
 
-Windows 서비스로 등록되어 부팅 시 자동 시작한다.
+사전 준비 둘:
+
+1. **`cert.pem` · `config.yml` · `<터널ID>.json`을 `C:\Windows\System32\config\systemprofile\.cloudflared\`로 복사**하고, `config.yml` 안의 `credentials-file` 경로도 그쪽으로 고친다. 서비스는 `LocalSystem`으로 돌아 사용자 홈을 못 본다.
+   돌리기 전에 검증: `cloudflared --config <그 경로> tunnel ingress validate` → `OK`
+2. **`cloudflared.exe`를 `C:\cloudflared\`로 복사**한다.
+
+> ⚠ **왜 exe를 공백 없는 경로로 복사하나.** `binPath=` 값이 `"`로 시작하면 PowerShell이
+> 네이티브 exe에 인수를 넘길 때 그 따옴표를 망가뜨려 `sc create`가 **사용법만 출력하고 끝난다.**
+> 경로에 공백이 없으면 값 안에 따옴표가 필요 없어 이 문제가 사라진다.
+> 대가: **winget 업데이트가 사본을 갱신하지 않는다.** 그래서 `--no-autoupdate`와 짝이다 —
+> 업데이트할 때 `C:\cloudflared\cloudflared.exe`도 같이 덮어쓸 것.
+
+> ⚠ **`--no-autoupdate`를 빼지 말 것.** 자동 업데이트는 자기 프로세스를 재시작하는데,
+> 서비스로 돌 때 그게 조용히 실패하면 터널이 돌아오지 않는다.
+
+`sc.exe failure`가 하는 일: 터널이 죽으면 **5초 뒤 자동 재시작**. 2026-11-09에 cloudflared가
+종료 로그도 없이 죽어 502가 난 일이 있었다 — 그 복구를 서비스가 스스로 한다.
+
+### 확인 — 두 줄만 보면 된다
+
+```
+sc.exe qc CloudflaredDatabox
+```
+
+- `START_TYPE : 2 AUTO_START`
+- `BINARY_PATH_NAME`에 **`--config`가 보일 것**
+
+`--config`가 없으면 터널은 떠도 **ingress를 모른다.** 그 상태의 커넥터가 같은 터널에 붙어 있으면
+Cloudflare가 요청을 그쪽에도 나눠 보내 **502가 섞여 나온다.** 실제로 겪었다.
+
+### 커넥터는 하나여야 한다
+
+```
+Get-CimInstance Win32_Process -Filter "Name='cloudflared.exe'" | Select ProcessId,ParentProcessId
+```
+
+둘 이상 보이면 설정 없는 쪽이 요청을 받고 있다. 옛 `Cloudflared` 서비스가 남아 있으면
+`sc.exe delete`가 **삭제를 예약만 하고**(프로세스가 핸들을 쥐고 있어서) 그 뒤의
+`service install`이 "already installed"로 거부된다. 그때는 **남은 프로세스를 직접 죽인다** —
+그 순간 서비스 항목도 레지스트리에서 사라진다. `services.msc` 창이 열려 있으면 먼저 닫을 것.
 
 ---
 
